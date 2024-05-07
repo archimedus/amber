@@ -21,6 +21,44 @@ namespace amberscript {
 
 using AmberScriptParserTest = testing::Test;
 
+class DummyDelegateRT : public amber::Delegate {
+ public:
+  DummyDelegateRT() = default;
+  ~DummyDelegateRT() override = default;
+
+  void Log(const std::string&) override {}
+  bool LogGraphicsCalls() const override { return false; }
+  void SetLogGraphicsCalls(bool) {}
+  bool LogExecuteCalls() const override { return false; }
+  void SetLogExecuteCalls(bool) {}
+  bool LogGraphicsCallsTime() const override { return false; }
+  void SetLogGraphicsCallsTime(bool) {}
+  uint64_t GetTimestampNs() const override { return 0; }
+  void SetScriptPath(std::string) {}
+
+  amber::Result LoadBufferData(const std::string,
+                               amber::BufferDataFileType type,
+                               amber::BufferInfo* buffer) const override {
+    return Result("Must not be called");
+  }
+  amber::Result Include(const std::string& file_name,
+                        std::string& include_text) const override {
+    include_text = R"(
+ACCELERATION_STRUCTURE BOTTOM_LEVEL triangle_blas
+  GEOMETRY TRIANGLES
+    0.0 -0.75 1.0
+    -0.75 0.75 1.0
+    0.75 0.75 1.0
+  END
+END
+ACCELERATION_STRUCTURE TOP_LEVEL triangle_tlas
+  BOTTOM_LEVEL_INSTANCE triangle_blas END
+END
+)";
+    return {};
+  }
+};
+
 TEST_F(AmberScriptParserTest, RayTracingBlasName) {
   std::string in = R"(
 ACCELERATION_STRUCTURE BOTTOM_LEVEL
@@ -1590,6 +1628,28 @@ PIPELINE raytracing my_pipeline
     ASSERT_FALSE(r.IsSuccess());
     EXPECT_EQ("3: Unexpected data type", r.Error());
   }
+}
+
+TEST_F(AmberScriptParserTest, RayTracingPipelineInclude) {
+  std::string in = R"(
+INCLUDE some-include-file.amber
+
+PIPELINE raytracing base_pipeline_lib
+  BIND ACCELERATION_STRUCTURE triangle_tlas DESCRIPTOR_SET 0 BINDING 0
+END
+
+PIPELINE raytracing my_pipeline
+  USE_LIBRARY base_pipeline_lib
+  BIND ACCELERATION_STRUCTURE triangle_tlas DESCRIPTOR_SET 0 BINDING 0
+END
+)";
+  DummyDelegateRT d;
+  Parser parser(&d);
+  Result r = parser.Parse(in);
+  ASSERT_TRUE(r.IsSuccess());
+  auto script = parser.GetScript();
+  const auto& pipelines = script->GetPipelines();
+  ASSERT_EQ(2u, pipelines.size());
 }
 
 }  // namespace amberscript

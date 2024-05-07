@@ -87,7 +87,9 @@ Amber::Amber(Delegate* delegate) : delegate_(delegate) {}
 
 Amber::~Amber() = default;
 
-amber::Result Amber::Parse(const std::string& input, amber::Recipe* recipe) {
+amber::Result Amber::Parse(const std::string& input,
+                           amber::Recipe* recipe,
+                           const std::string& file_name) {
   if (!recipe)
     return Result("Recipe must be provided to Parse.");
 
@@ -97,7 +99,7 @@ amber::Result Amber::Parse(const std::string& input, amber::Recipe* recipe) {
   else
     parser = MakeUnique<vkscript::Parser>(GetDelegate());
 
-  Result r = parser->Parse(input);
+  Result r = parser->Parse(input, file_name);
   if (!r.IsSuccess())
     return r;
 
@@ -156,14 +158,17 @@ amber::Result Amber::AreAllRequirementsSupported(const amber::Recipe* recipe,
                                           &script);
 }
 
-amber::Result Amber::Execute(const amber::Recipe* recipe, Options* opts) {
+amber::Result Amber::Execute(const amber::Recipe* recipe,
+                             Options* opts,
+                             const std::string& file_name) {
   ShaderMap map;
-  return ExecuteWithShaderData(recipe, opts, map);
+  return ExecuteWithShaderData(recipe, opts, map, file_name);
 }
 
 amber::Result Amber::ExecuteWithShaderData(const amber::Recipe* recipe,
                                            Options* opts,
-                                           const ShaderMap& shader_data) {
+                                           const ShaderMap& shader_data,
+                                           const std::string& file_name) {
   std::unique_ptr<Engine> engine;
   Script* script = nullptr;
   Result r = CreateEngineAndCheckRequirements(recipe, opts, GetDelegate(),
@@ -199,7 +204,7 @@ amber::Result Amber::ExecuteWithShaderData(const amber::Recipe* recipe,
     }
 
     DescriptorSetAndBindingParser p;
-    r = p.Parse(buffer_info.buffer_name);
+    r = p.Parse(buffer_info.buffer_name, file_name);
     if (!r.IsSuccess())
       continue;
 

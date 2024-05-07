@@ -51,10 +51,11 @@ ShaderType ShaderNameToType(const std::string& name) {
 CommandParser::CommandParser(Script* script,
                              Pipeline* pipeline,
                              size_t current_line,
-                             const std::string& data)
+                             const std::string& data,
+                             const std::string& file_name)
     : script_(script),
       pipeline_(pipeline),
-      tokenizer_(MakeUnique<Tokenizer>(data)) {
+      tokenizer_(MakeUnique<Tokenizer>(data, file_name)) {
   tokenizer_->SetCurrentLine(current_line);
 }
 

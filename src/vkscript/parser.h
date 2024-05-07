@@ -36,12 +36,13 @@ class Parser : public amber::Parser {
   ~Parser() override;
 
   // amber::Parser
-  Result Parse(const std::string& data) override;
+  Result Parse(const std::string& data, const std::string& file_name = std::string()) override;
 
   void SkipValidationForTest() { skip_validation_for_test_ = true; }
 
  private:
   bool skip_validation_for_test_ = false;
+  std::string file_name_;
 
   std::string make_error(const Tokenizer& tokenizer, const std::string& err);
   Result GenerateDefaultPipeline(const SectionParser& section_parser);

@@ -42,11 +42,12 @@ Parser::~Parser() = default;
 
 std::string Parser::make_error(const Tokenizer& tokenizer,
                                const std::string& err) {
-  return std::to_string(tokenizer.GetCurrentLine()) + ": " + err;
+  return tokenizer.GetPosition() + ": " + err;
 }
 
-Result Parser::Parse(const std::string& input) {
+Result Parser::Parse(const std::string& input, const std::string& file_name) {
   SectionParser section_parser;
+  file_name_ = file_name;
   Result r = section_parser.Parse(input);
   if (!r.IsSuccess())
     return r;
@@ -149,7 +150,7 @@ Result Parser::ProcessShaderBlock(const SectionParser::Section& section) {
 }
 
 Result Parser::ProcessRequireBlock(const SectionParser::Section& section) {
-  Tokenizer tokenizer(section.contents);
+  Tokenizer tokenizer(section.contents, file_name_);
   tokenizer.SetCurrentLine(section.starting_line_number + 1);
 
   for (auto token = tokenizer.NextToken(); !token->IsEOS();
@@ -275,7 +276,7 @@ Result Parser::ProcessRequireBlock(const SectionParser::Section& section) {
 Result Parser::ProcessIndicesBlock(const SectionParser::Section& section) {
   std::vector<Value> indices;
 
-  Tokenizer tokenizer(section.contents);
+  Tokenizer tokenizer(section.contents, file_name_);
   tokenizer.SetCurrentLine(section.starting_line_number);
   for (auto token = tokenizer.NextToken(); !token->IsEOS();
        token = tokenizer.NextToken()) {
@@ -318,7 +319,7 @@ Result Parser::ProcessIndicesBlock(const SectionParser::Section& section) {
 }
 
 Result Parser::ProcessVertexDataBlock(const SectionParser::Section& section) {
-  Tokenizer tokenizer(section.contents);
+  Tokenizer tokenizer(section.contents, file_name_);
   tokenizer.SetCurrentLine(section.starting_line_number);
 
   // Skip blank and comment lines
@@ -455,7 +456,7 @@ Result Parser::ProcessVertexDataBlock(const SectionParser::Section& section) {
 Result Parser::ProcessTestBlock(const SectionParser::Section& section) {
   auto* pipeline = script_->GetPipeline(kDefaultPipelineName);
   CommandParser cp(script_.get(), pipeline, section.starting_line_number + 1,
-                   section.contents);
+                   section.contents, file_name_);
   Result r = cp.Parse();
   if (!r.IsSuccess())
     return r;

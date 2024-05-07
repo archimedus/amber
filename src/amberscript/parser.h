@@ -40,7 +40,7 @@ class Parser : public amber::Parser {
   ~Parser() override;
 
   // amber::Parser
-  Result Parse(const std::string& data) override;
+  Result Parse(const std::string& data, const std::string& file_name = std::string()) override;
 
  private:
   std::string make_error(const std::string& err);
@@ -53,6 +53,7 @@ class Parser : public amber::Parser {
   Result ParseStruct();
   Result ParseBuffer();
   Result ParseImage();
+  Result ParseInclude();
   Result ParseBufferInitializer(Buffer*);
   Result ParseBufferInitializerSize(Buffer*);
   Result ParseBufferInitializerFill(Buffer*, uint32_t);

@@ -281,11 +281,11 @@ Parser::Parser(Delegate* delegate) : amber::Parser(delegate) {}
 Parser::~Parser() = default;
 
 std::string Parser::make_error(const std::string& err) {
-  return std::to_string(tokenizer_->GetCurrentLine()) + ": " + err;
+  return tokenizer_->GetPosition() + ": " + err;
 }
 
-Result Parser::Parse(const std::string& data) {
-  tokenizer_ = MakeUnique<Tokenizer>(data);
+Result Parser::Parse(const std::string& data, const std::string& file_name) {
+  tokenizer_ = MakeUnique<Tokenizer>(data, file_name);
 
   for (auto token = tokenizer_->NextToken(); !token->IsEOS();
        token = tokenizer_->NextToken()) {
@@ -328,6 +328,8 @@ Result Parser::Parse(const std::string& data) {
       r = ParseVirtualFile();
     } else if (tok == "ACCELERATION_STRUCTURE") {
       r = ParseAS();
+    } else if (tok == "INCLUDE") {
+      r = ParseInclude();
     } else {
       r = Result("unknown token: " + tok);
     }
@@ -2675,7 +2677,8 @@ Result Parser::ParseBufferInitializerFile(Buffer* buffer) {
     return Result("missing delegate");
 
   BufferInfo info;
-  Result r = delegate_->LoadBufferData(token->AsString(), file_type, &info);
+  const std::string file_name = token->AsString();
+  Result r = delegate_->LoadBufferData(file_name, file_type, &info);
 
   if (!r.IsSuccess())
     return r;
@@ -2690,7 +2693,7 @@ Result Parser::ParseBufferInitializerFile(Buffer* buffer) {
 
   if (file_type == BufferDataFileType::kText) {
     auto s = std::string(data->begin(), data->end());
-    Tokenizer tok(s);
+    Tokenizer tok(s, file_name);
     r = ParseBufferData(buffer, &tok, true);
     if (!r.IsSuccess())
       return r;
@@ -4596,6 +4599,21 @@ Result Parser::ParseVirtualFile() {
     return Result("VIRTUAL_FILE missing END command");
 
   return script_->AddVirtualFile(path, data);
+}
+
+Result Parser::ParseInclude() {
+  auto token = tokenizer_->NextToken();
+  const std::string include_name = token->AsString();
+  std::string include_text;
+  Result r = delegate_->Include(include_name, include_text);
+  if (!r.IsSuccess())
+    return r;
+
+  std::unique_ptr<Tokenizer> tokenizer(tokenizer_.release());
+  r = Parse(include_text, include_name);
+  tokenizer_.swap(tokenizer);
+
+  return r;
 }
 
 }  // namespace amberscript

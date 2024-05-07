@@ -46,6 +46,10 @@ class DummyDelegate : public amber::Delegate {
 
     return {};
   }
+  amber::Result Include(const std::string& file_name,
+      std::string& include_text) const override {
+    return {};
+  }
 };
 
 TEST_F(AmberScriptParserTest, BufferData) {

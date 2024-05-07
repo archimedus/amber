@@ -101,7 +101,7 @@ class Token {
 /// Splits the provided input into a stream of tokens.
 class Tokenizer {
  public:
-  explicit Tokenizer(const std::string& data);
+  explicit Tokenizer(const std::string& data, const std::string& file_name = std::string());
   ~Tokenizer();
 
   std::unique_ptr<Token> NextToken();
@@ -110,12 +110,18 @@ class Tokenizer {
 
   void SetCurrentLine(size_t line) { current_line_ = line; }
   size_t GetCurrentLine() const { return current_line_; }
+  const std::string& GetFileName() const { return file_name_; }
+  const std::string GetPosition() const {
+    return (GetFileName().empty() ? "" : GetFileName() + ": ") +
+           std::to_string(GetCurrentLine());
+  }
 
  private:
   bool IsWhitespace(char ch);
   void SkipWhitespace();
   void SkipComment();
 
+  std::string file_name_;
   std::string data_;
   size_t current_position_ = 0;
   size_t current_line_ = 1;

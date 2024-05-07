@@ -26,7 +26,8 @@ DescriptorSetAndBindingParser::DescriptorSetAndBindingParser() = default;
 
 DescriptorSetAndBindingParser::~DescriptorSetAndBindingParser() = default;
 
-Result DescriptorSetAndBindingParser::Parse(const std::string& buffer_id) {
+Result DescriptorSetAndBindingParser::Parse(const std::string& buffer_id,
+                                            const std::string& file_name) {
   size_t idx = 0;
 
   // Pipeline name
@@ -44,7 +45,7 @@ Result DescriptorSetAndBindingParser::Parse(const std::string& buffer_id) {
   if (idx >= buffer_id.size())
     return Result("Invalid buffer id: " + buffer_id);
 
-  Tokenizer t(buffer_id.substr(idx));
+  Tokenizer t(buffer_id.substr(idx), file_name);
   auto token = t.NextToken();
   if (token->IsInteger()) {
     if (token->AsInt32() < 0) {

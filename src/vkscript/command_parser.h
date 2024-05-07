@@ -40,7 +40,8 @@ class CommandParser {
   CommandParser(Script* script,
                 Pipeline* pipeline,
                 size_t current_line,
-                const std::string& data);
+                const std::string& data,
+                const std::string& file_name = std::string());
   ~CommandParser();
 
   Result Parse();

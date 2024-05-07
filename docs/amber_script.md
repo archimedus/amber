@@ -107,6 +107,15 @@ Shaders can directly reference these virtual files for their source. \
 HLSL shaders that `#include` other `.hlsl` files will first check the virtual
 file system, before falling back to the standard file system.
 
+### Includes
+
+Each amber script can include other files, though only on top scope.
+Include files are included using the `INCLUDE` command:
+
+```groovy
+INCLUDE {file_name}
+```
+
 ### Shaders
 
 Shader programs are declared using the `SHADER` command. \

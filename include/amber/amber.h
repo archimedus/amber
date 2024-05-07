@@ -101,6 +101,9 @@ class Delegate {
   virtual amber::Result LoadBufferData(const std::string file_name,
                                        BufferDataFileType file_type,
                                        amber::BufferInfo* buffer) const = 0;
+  /// Include parsable text from a file
+  virtual amber::Result Include(const std::string& file_name,
+                                std::string& include_text) const = 0;
 };
 
 /// Stores configuration options for Amber.
@@ -138,8 +141,11 @@ class Amber {
   explicit Amber(Delegate* delegate);
   ~Amber();
 
-  /// Parse the given |data| into the |recipe|.
-  amber::Result Parse(const std::string& data, amber::Recipe* recipe);
+  /// Parse the given |data| into the |recipe|. The |file_name| required for
+  /// proper error reporting
+  amber::Result Parse(const std::string& data,
+                      amber::Recipe* recipe,
+                      const std::string& file_name);
 
   /// Determines whether the engine supports all features required by the
   /// |recipe|. Modifies the |recipe| by applying some of the |opts| to the
@@ -151,14 +157,17 @@ class Amber {
   /// |Result| which indicates if the execution succeded. Modifies the
   /// |recipe| by applying some of the |opts| to the recipe's internal
   /// state.
-  amber::Result Execute(const amber::Recipe* recipe, Options* opts);
+  amber::Result Execute(const amber::Recipe* recipe,
+                        Options* opts,
+                        const std::string& file_name);
 
   /// Executes the given |recipe| with the provided |opts|. Will use
   /// |shader_map| to lookup shader data before attempting to compile the
   /// shader if possible.
   amber::Result ExecuteWithShaderData(const amber::Recipe* recipe,
                                       Options* opts,
-                                      const ShaderMap& shader_data);
+                                      const ShaderMap& shader_data,
+                                      const std::string& file_name);
 
   /// Returns the delegate object.
   Delegate* GetDelegate() const { return delegate_; }

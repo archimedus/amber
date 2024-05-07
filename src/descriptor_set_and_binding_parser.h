@@ -34,7 +34,9 @@ class DescriptorSetAndBindingParser {
   /// ':'. For example, ":0", "1", and "2:3" are valid strings for |buffer_id|,
   /// but "", "-4", ":-5", ":", "a", and "b:c" are invalid strings for
   /// |buffer_id|. The |buffer_id| can be prefixed by the name of a pipeline.
-  Result Parse(const std::string& buffer_id);
+  /// |file_name| is a position consisting of file name and line.
+  Result Parse(const std::string& buffer_id,
+               const std::string& file_name = std::string());
 
   /// Returns true if a pipeline name was specified
   bool HasPipelineName() const { return !pipeline_name_.empty(); }

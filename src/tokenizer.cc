@@ -52,7 +52,8 @@ Result Token::ConvertToDouble() {
   return {};
 }
 
-Tokenizer::Tokenizer(const std::string& data) : data_(data) {}
+Tokenizer::Tokenizer(const std::string& data, const std::string& file_name)
+    : file_name_(file_name), data_(data) {}
 
 Tokenizer::~Tokenizer() = default;
 
