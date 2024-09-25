@@ -35,6 +35,10 @@ std::vector<std::string> Recipe::GetRequiredFeatures() const {
   return impl_ ? impl_->GetRequiredFeatures() : std::vector<std::string>();
 }
 
+std::vector<std::string> Recipe::GetRequiredProperties() const {
+  return impl_ ? impl_->GetRequiredProperties() : std::vector<std::string>();
+}
+
 std::vector<std::string> Recipe::GetRequiredDeviceExtensions() const {
   return impl_ ? impl_->GetRequiredDeviceExtensions()
                : std::vector<std::string>();
@@ -43,6 +47,16 @@ std::vector<std::string> Recipe::GetRequiredDeviceExtensions() const {
 std::vector<std::string> Recipe::GetRequiredInstanceExtensions() const {
   return impl_ ? impl_->GetRequiredInstanceExtensions()
                : std::vector<std::string>();
+}
+
+void Recipe::SetFenceTimeout(uint32_t timeout_ms) {
+  if (impl_)
+    impl_->SetFenceTimeout(timeout_ms);
+}
+
+void Recipe::SetPipelineRuntimeLayerEnabled(bool enabled) {
+  if (impl_)
+    impl_->SetPipelineRuntimeLayerEnabled(enabled);
 }
 
 }  // namespace amber

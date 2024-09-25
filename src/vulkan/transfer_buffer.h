@@ -1,4 +1,5 @@
 // Copyright 2018 The Amber Authors.
+// Copyright (C) 2024 Advanced Micro Devices, Inc. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,6 +20,7 @@
 
 #include "amber/result.h"
 #include "amber/vulkan_header.h"
+#include "src/format.h"
 #include "src/vulkan/resource.h"
 
 namespace amber {
@@ -30,12 +32,24 @@ class Device;
 /// Wrapper around a Vulkan VkBuffer object.
 class TransferBuffer : public Resource {
  public:
-  TransferBuffer(Device* device, uint32_t size_in_bytes);
+  TransferBuffer(Device* device, uint32_t size_in_bytes, Format* format);
   ~TransferBuffer() override;
 
-  Result Initialize(const VkBufferUsageFlags usage);
+  TransferBuffer* AsTransferBuffer() override { return this; }
+  Result AddUsageFlags(VkBufferUsageFlags flags) {
+    if (buffer_ != VK_NULL_HANDLE) {
+      return Result(
+          "Vulkan: TransferBuffer::AddUsageFlags Usage flags can't be changed "
+          "after initializing the buffer.");
+    }
+    usage_flags_ |= flags;
+    return {};
+  }
+  Result Initialize() override;
+  const VkBufferView* GetVkBufferView() const { return &view_; }
 
   VkBuffer GetVkBuffer() const { return buffer_; }
+  VkDeviceAddress getBufferDeviceAddress();
 
   /// Records a command on |command_buffer| to copy the buffer contents from the
   /// host to the device.
@@ -44,11 +58,12 @@ class TransferBuffer : public Resource {
   /// device to the host.
   void CopyToHost(CommandBuffer* command_buffer) override;
 
-  void UpdateMemoryWithRawData(const std::vector<uint8_t>& raw_data);
-
  private:
+  VkBufferUsageFlags usage_flags_ = 0;
   VkBuffer buffer_ = VK_NULL_HANDLE;
   VkDeviceMemory memory_ = VK_NULL_HANDLE;
+  VkBufferView view_ = VK_NULL_HANDLE;
+  VkFormat format_ = VK_FORMAT_UNDEFINED;
 };
 
 }  // namespace vulkan

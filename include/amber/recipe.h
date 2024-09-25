@@ -15,6 +15,7 @@
 #ifndef AMBER_RECIPE_H_
 #define AMBER_RECIPE_H_
 
+#include <cstdint>
 #include <string>
 #include <utility>
 #include <vector>
@@ -34,11 +35,20 @@ class RecipeImpl {
   /// Returns required features in the given recipe.
   virtual std::vector<std::string> GetRequiredFeatures() const = 0;
 
+  /// Returns required features in the given recipe.
+  virtual std::vector<std::string> GetRequiredProperties() const = 0;
+
   /// Returns required device extensions in the given recipe.
   virtual std::vector<std::string> GetRequiredDeviceExtensions() const = 0;
 
   /// Returns required instance extensions in the given recipe.
   virtual std::vector<std::string> GetRequiredInstanceExtensions() const = 0;
+
+  /// Sets the fence timeout value to |timeout_ms|.
+  virtual void SetFenceTimeout(uint32_t timeout_ms) = 0;
+
+  /// Sets or clears runtime layer bit to |enabled|.
+  virtual void SetPipelineRuntimeLayerEnabled(bool enabled) = 0;
 
  protected:
   RecipeImpl();
@@ -60,11 +70,20 @@ class Recipe {
   /// Returns required features in the given recipe.
   std::vector<std::string> GetRequiredFeatures() const;
 
+  /// Returns required properties in the given recipe.
+  std::vector<std::string> GetRequiredProperties() const;
+
   /// Returns required device extensions in the given recipe.
   std::vector<std::string> GetRequiredDeviceExtensions() const;
 
   /// Returns required instance extensions in the given recipe.
   std::vector<std::string> GetRequiredInstanceExtensions() const;
+
+  /// Sets the timeout value for fences to |timeout_ms|.
+  void SetFenceTimeout(uint32_t timeout_ms);
+
+  /// Sets or clears runtime layer bit to |enabled|.
+  void SetPipelineRuntimeLayerEnabled(bool enabled);
 
  private:
   RecipeImpl* impl_;

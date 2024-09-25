@@ -61,7 +61,8 @@ enum ColorMask {
 };
 
 enum class CompareOp : uint8_t {
-  kNever = 0,
+  kUnknown = 0,
+  kNever,
   kLess,
   kEqual,
   kLessOrEqual,
@@ -72,7 +73,8 @@ enum class CompareOp : uint8_t {
 };
 
 enum class StencilOp : uint8_t {
-  kKeep = 0,
+  kUnknown = 0,
+  kKeep,
   kZero,
   kReplace,
   kIncrementAndClamp,
@@ -102,7 +104,8 @@ enum class LogicOp : uint8_t {
 };
 
 enum class BlendOp : uint8_t {
-  kAdd = 0,
+  kUnknown = 0,
+  kAdd,
   kSubtract,
   kReverseSubtract,
   kMin,
@@ -156,7 +159,8 @@ enum class BlendOp : uint8_t {
 };
 
 enum class BlendFactor : uint8_t {
-  kZero = 0,
+  kUnknown = 0,
+  kZero,
   kOne,
   kSrcColor,
   kOneMinusSrcColor,
@@ -178,6 +182,8 @@ enum class BlendFactor : uint8_t {
 };
 
 Topology NameToTopology(const std::string& name);
+BlendFactor NameToBlendFactor(const std::string& name);
+BlendOp NameToBlendOp(const std::string& name);
 
 }  // namespace amber
 

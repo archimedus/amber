@@ -29,10 +29,14 @@ namespace vulkan {
 FrameBuffer::FrameBuffer(
     Device* device,
     const std::vector<const amber::Pipeline::BufferInfo*>& color_attachments,
+    amber::Pipeline::BufferInfo depth_stencil_attachment,
+    const std::vector<const amber::Pipeline::BufferInfo*>& resolve_targets,
     uint32_t width,
     uint32_t height)
     : device_(device),
       color_attachments_(color_attachments),
+      resolve_targets_(resolve_targets),
+      depth_stencil_attachment_(depth_stencil_attachment),
       width_(width),
       height_(height) {}
 
@@ -43,8 +47,7 @@ FrameBuffer::~FrameBuffer() {
   }
 }
 
-Result FrameBuffer::Initialize(VkRenderPass render_pass,
-                               const Format& depth_format) {
+Result FrameBuffer::Initialize(VkRenderPass render_pass) {
   std::vector<VkImageView> attachments;
 
   if (!color_attachments_.empty()) {
@@ -61,13 +64,16 @@ Result FrameBuffer::Initialize(VkRenderPass render_pass,
 
     attachments.resize(color_attachments_.size());
     for (auto* info : color_attachments_) {
+      const VkImageUsageFlags usage_flags = VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                                            VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                                            VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
       color_images_.push_back(MakeUnique<TransferImage>(
           device_, *info->buffer->GetFormat(), VK_IMAGE_ASPECT_COLOR_BIT,
-          width_, height_, depth_));
+          VK_IMAGE_TYPE_2D, usage_flags, width_ << info->base_mip_level,
+          height_ << info->base_mip_level, depth_, info->buffer->GetMipLevels(),
+          info->base_mip_level, 1u, info->buffer->GetSamples()));
 
-      Result r = color_images_.back()->Initialize(
-          VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-          VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT);
+      Result r = color_images_.back()->Initialize();
       if (!r.IsSuccess())
         return r;
 
@@ -75,22 +81,44 @@ Result FrameBuffer::Initialize(VkRenderPass render_pass,
     }
   }
 
-  if (depth_format.IsFormatKnown()) {
-    depth_image_ = MakeUnique<TransferImage>(
-        device_, depth_format,
-        static_cast<VkImageAspectFlags>(depth_format.HasStencilComponent()
-                                            ? VK_IMAGE_ASPECT_DEPTH_BIT |
-                                                  VK_IMAGE_ASPECT_STENCIL_BIT
-                                            : VK_IMAGE_ASPECT_DEPTH_BIT),
-        width_, height_, depth_);
+  if (depth_stencil_attachment_.buffer &&
+      depth_stencil_attachment_.buffer->GetFormat()->IsFormatKnown()) {
+    VkImageAspectFlags aspect = 0;
+    if (depth_stencil_attachment_.buffer->GetFormat()->HasDepthComponent())
+      aspect |= VK_IMAGE_ASPECT_DEPTH_BIT;
+    if (depth_stencil_attachment_.buffer->GetFormat()->HasStencilComponent())
+      aspect |= VK_IMAGE_ASPECT_STENCIL_BIT;
+    assert(aspect != 0);
 
-    Result r = depth_image_->Initialize(
+    const VkImageUsageFlags usage_flags =
         VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-        VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT);
+        VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+
+    depth_stencil_image_ = MakeUnique<TransferImage>(
+        device_, *depth_stencil_attachment_.buffer->GetFormat(), aspect,
+        VK_IMAGE_TYPE_2D, usage_flags, width_, height_, depth_, 1u, 0u, 1u, 1u);
+
+    Result r = depth_stencil_image_->Initialize();
     if (!r.IsSuccess())
       return r;
 
-    attachments.push_back(depth_image_->GetVkImageView());
+    attachments.push_back(depth_stencil_image_->GetVkImageView());
+  }
+
+  for (auto* info : resolve_targets_) {
+    const VkImageUsageFlags usage_flags = VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                                          VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                                          VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    resolve_images_.push_back(MakeUnique<TransferImage>(
+        device_, *info->buffer->GetFormat(), VK_IMAGE_ASPECT_COLOR_BIT,
+        VK_IMAGE_TYPE_2D, usage_flags, width_, height_, depth_, 1u, 0u, 1u,
+        1u));
+
+    Result r = resolve_images_.back()->Initialize();
+    if (!r.IsSuccess())
+      return r;
+
+    attachments.push_back(resolve_images_.back()->GetVkImageView());
   }
 
   VkFramebufferCreateInfo frame_buffer_info = VkFramebufferCreateInfo();
@@ -119,8 +147,11 @@ void FrameBuffer::ChangeFrameLayout(CommandBuffer* command,
   for (auto& img : color_images_)
     img->ImageBarrier(command, color_layout, color_stage);
 
-  if (depth_image_)
-    depth_image_->ImageBarrier(command, depth_layout, depth_stage);
+  for (auto& img : resolve_images_)
+    img->ImageBarrier(command, color_layout, color_stage);
+
+  if (depth_stencil_image_)
+    depth_stencil_image_->ImageBarrier(command, depth_layout, depth_stage);
 }
 
 void FrameBuffer::ChangeFrameToDrawLayout(CommandBuffer* command) {
@@ -151,9 +182,15 @@ void FrameBuffer::ChangeFrameToWriteLayout(CommandBuffer* command) {
       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT);
 }
 
-void FrameBuffer::TransferColorImagesToHost(CommandBuffer* command) {
+void FrameBuffer::TransferImagesToHost(CommandBuffer* command) {
   for (auto& img : color_images_)
     img->CopyToHost(command);
+
+  for (auto& img : resolve_images_)
+    img->CopyToHost(command);
+
+  if (depth_stencil_image_)
+    depth_stencil_image_->CopyToHost(command);
 }
 
 void FrameBuffer::CopyImagesToBuffers() {
@@ -165,11 +202,30 @@ void FrameBuffer::CopyImagesToBuffers() {
     std::memcpy(values->data(), img->HostAccessibleMemoryPtr(),
                 info->buffer->GetSizeInBytes());
   }
+
+  for (size_t i = 0; i < resolve_images_.size(); ++i) {
+    auto& img = resolve_images_[i];
+    auto* info = resolve_targets_[i];
+    auto* values = info->buffer->ValuePtr();
+    values->resize(info->buffer->GetSizeInBytes());
+    std::memcpy(values->data(), img->HostAccessibleMemoryPtr(),
+                info->buffer->GetSizeInBytes());
+  }
+
+  if (depth_stencil_image_) {
+    auto* values = depth_stencil_attachment_.buffer->ValuePtr();
+    values->resize(depth_stencil_attachment_.buffer->GetSizeInBytes());
+    std::memcpy(values->data(), depth_stencil_image_->HostAccessibleMemoryPtr(),
+                depth_stencil_attachment_.buffer->GetSizeInBytes());
+  }
 }
 
-void FrameBuffer::TransferColorImagesToDevice(CommandBuffer* command) {
+void FrameBuffer::TransferImagesToDevice(CommandBuffer* command) {
   for (auto& img : color_images_)
     img->CopyToDevice(command);
+
+  if (depth_stencil_image_)
+    depth_stencil_image_->CopyToDevice(command);
 }
 
 void FrameBuffer::CopyBuffersToImages() {
@@ -183,6 +239,28 @@ void FrameBuffer::CopyBuffersToImages() {
 
     std::memcpy(img->HostAccessibleMemoryPtr(), values->data(),
                 info->buffer->GetSizeInBytes());
+  }
+
+  for (size_t i = 0; i < resolve_images_.size(); ++i) {
+    auto& img = resolve_images_[i];
+    auto* info = resolve_targets_[i];
+    auto* values = info->buffer->ValuePtr();
+    // Nothing to do if our local buffer is empty
+    if (values->empty())
+      continue;
+
+    std::memcpy(img->HostAccessibleMemoryPtr(), values->data(),
+                info->buffer->GetSizeInBytes());
+  }
+
+  if (depth_stencil_image_) {
+    auto* values = depth_stencil_attachment_.buffer->ValuePtr();
+    // Nothing to do if our local buffer is empty
+    if (!values->empty()) {
+      std::memcpy(depth_stencil_image_->HostAccessibleMemoryPtr(),
+                  values->data(),
+                  depth_stencil_attachment_.buffer->GetSizeInBytes());
+    }
   }
 }
 

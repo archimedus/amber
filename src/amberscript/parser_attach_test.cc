@@ -67,7 +67,7 @@ END)";
   Parser parser;
   Result r = parser.Parse(in);
   ASSERT_FALSE(r.IsSuccess());
-  EXPECT_EQ("4: Unknown ATTACH parameter: INVALID", r.Error());
+  EXPECT_EQ("4: unknown ATTACH parameter: INVALID", r.Error());
 }
 
 TEST_F(AmberScriptParserTest, AttachMissingValue) {
@@ -126,7 +126,7 @@ END)";
   ASSERT_FALSE(r.IsSuccess()) << r.Error();
   EXPECT_EQ("9: only compute shaders allowed in a compute pipeline", r.Error());
 }
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     AmberScriptParserPipelineAttachTests,
     AmberScriptParserPipelineAttachTest,
     testing::Values(
@@ -137,7 +137,7 @@ INSTANTIATE_TEST_CASE_P(
                        kShaderTypeTessellationEvaluation},
         ShaderTypeData{
             "tessellation_control",
-            kShaderTypeTessellationControl}), );  // NOLINT(whitespace/parens)
+            kShaderTypeTessellationControl}));  // NOLINT(whitespace/parens)
 
 TEST_F(AmberScriptParserTest, PipelineEntryPoint) {
   std::string in = R"(
@@ -215,7 +215,7 @@ END)";
   Parser parser;
   Result r = parser.Parse(in);
   ASSERT_FALSE(r.IsSuccess());
-  EXPECT_EQ("6: Unknown ATTACH parameter: INVALID", r.Error());
+  EXPECT_EQ("6: unknown ATTACH parameter: INVALID", r.Error());
 }
 
 TEST_F(AmberScriptParserTest, PiplineMultiShaderAttach) {
@@ -329,8 +329,8 @@ END)";
   const auto& shaders = pipeline->GetShaders();
   ASSERT_EQ(1U, shaders.size());
 
-  EXPECT_EQ(1, shaders[0].GetSpecialization().size());
-  EXPECT_EQ(4, shaders[0].GetSpecialization().at(1));
+  EXPECT_EQ(1u, shaders[0].GetSpecialization().size());
+  EXPECT_EQ(4u, shaders[0].GetSpecialization().at(1));
 }
 
 TEST_F(AmberScriptParserTest, PipelineSpecializationInt32) {
@@ -354,8 +354,8 @@ END)";
   const auto& shaders = pipeline->GetShaders();
   ASSERT_EQ(1U, shaders.size());
 
-  EXPECT_EQ(1, shaders[0].GetSpecialization().size());
-  EXPECT_EQ(0xffffffff, shaders[0].GetSpecialization().at(2));
+  EXPECT_EQ(1u, shaders[0].GetSpecialization().size());
+  EXPECT_EQ(0xffffffffu, shaders[0].GetSpecialization().at(2));
 }
 
 TEST_F(AmberScriptParserTest, PipelineSpecializationFloat) {
@@ -379,8 +379,8 @@ END)";
   const auto& shaders = pipeline->GetShaders();
   ASSERT_EQ(1U, shaders.size());
 
-  EXPECT_EQ(1, shaders[0].GetSpecialization().size());
-  EXPECT_EQ(0x3f8ccccd, shaders[0].GetSpecialization().at(3));
+  EXPECT_EQ(1u, shaders[0].GetSpecialization().size());
+  EXPECT_EQ(0x3f8ccccdu, shaders[0].GetSpecialization().at(3));
 }
 
 TEST_F(AmberScriptParserTest, PipelineSpecializationIDIsString) {
@@ -425,7 +425,7 @@ END)";
   Parser parser;
   Result r = parser.Parse(in);
   ASSERT_FALSE(r.IsSuccess());
-  EXPECT_EQ("6: invalid data_type provided", r.Error());
+  EXPECT_EQ("6: invalid data type 'uint' provided", r.Error());
 }
 
 TEST_F(AmberScriptParserTest, PipelineSpecializationBadDataType) {
@@ -469,10 +469,10 @@ END)";
   const auto& shaders = pipeline->GetShaders();
   ASSERT_EQ(1U, shaders.size());
 
-  EXPECT_EQ(3, shaders[0].GetSpecialization().size());
-  EXPECT_EQ(4, shaders[0].GetSpecialization().at(1));
-  EXPECT_EQ(5, shaders[0].GetSpecialization().at(2));
-  EXPECT_EQ(1, shaders[0].GetSpecialization().at(5));
+  EXPECT_EQ(3u, shaders[0].GetSpecialization().size());
+  EXPECT_EQ(4u, shaders[0].GetSpecialization().at(1));
+  EXPECT_EQ(5u, shaders[0].GetSpecialization().at(2));
+  EXPECT_EQ(1u, shaders[0].GetSpecialization().at(5));
 }
 
 TEST_F(AmberScriptParserTest, PipelineSpecializationNoType) {
@@ -496,8 +496,8 @@ END)";
   const auto& shaders = pipeline->GetShaders();
   ASSERT_EQ(1U, shaders.size());
 
-  EXPECT_EQ(1, shaders[0].GetSpecialization().size());
-  EXPECT_EQ(4, shaders[0].GetSpecialization().at(1));
+  EXPECT_EQ(1u, shaders[0].GetSpecialization().size());
+  EXPECT_EQ(4u, shaders[0].GetSpecialization().at(1));
 }
 
 }  // namespace amberscript

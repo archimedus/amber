@@ -38,12 +38,19 @@ enum EngineType {
   kEngineTypeDawn,
 };
 
+enum class ExecutionType {
+  /// Execute as normal.
+  kExecute = 0,
+  /// Only create the pipelines and then exit.
+  kPipelineCreateOnly
+};
+
 /// Override point of engines to add their own configuration.
 struct EngineConfig {
   virtual ~EngineConfig();
 };
 
-/// Stores information for a biffer.
+/// Stores information for a buffer.
 struct BufferInfo {
   BufferInfo();
   BufferInfo(const BufferInfo&);
@@ -63,6 +70,18 @@ struct BufferInfo {
   std::vector<Value> values;
 };
 
+/// Types of source file to load buffer data from.
+enum class BufferDataFileType : int8_t {
+  /// Unknown file type
+  kUnknown = -1,
+  /// A text file
+  kText = 0,
+  /// A binary file
+  kBinary,
+  /// A PNG file
+  kPng
+};
+
 /// Delegate class for various hook functions
 class Delegate {
  public:
@@ -78,6 +97,13 @@ class Delegate {
   virtual uint64_t GetTimestampNs() const = 0;
   /// Tells whether to log each test as it's executed
   virtual bool LogExecuteCalls() const = 0;
+  /// Loads buffer data from a file
+  virtual amber::Result LoadBufferData(const std::string file_name,
+                                       BufferDataFileType file_type,
+                                       amber::BufferInfo* buffer) const = 0;
+
+  /// Mechanism for gathering timing from 'TIME_EXECUTION'
+  virtual void ReportExecutionTiming(double time_in_ms) = 0;
 };
 
 /// Stores configuration options for Amber.
@@ -90,19 +116,29 @@ struct Options {
   /// Holds engine specific configuration. Ownership stays with the caller.
   EngineConfig* config;
   /// The SPIR-V environment to target.
+  /// E.g. "spv1.0", "spv1.3", "vulkan1.0", "vulkan1.1spv1.4".
+  /// If a Vulkan environment, uses the highest version of SPIR-V required
+  /// to be supported by that Vulkan environment.  For SPIR-V 1.4 in
+  /// Vulkan, use "vulkan1.1spv1.4".
+  /// If a SPIR-V environment is specified, assume the lowest version
+  /// of Vulkan that requires support for that version of SPIR-V.
+  /// Shader compilers may limit the list of supported environments.
+  /// If empty, a default of "spv1.0" is used.
   std::string spv_env;
   /// Lists the buffers to extract at the end of the execution
   std::vector<BufferInfo> extractions;
-  /// Terminate after creating the pipelines.
-  bool pipeline_create_only;
-  /// Delegate implementation
-  Delegate* delegate;
+  /// The type of execution. For example, execute as normal or just create the
+  /// piplines and exit.
+  ExecutionType execution_type;
+  /// If true, disables SPIR-V validation. If false, SPIR-V shaders will be
+  /// validated using the Validator component (spirv-val) from SPIRV-Tools.
+  bool disable_spirv_validation;
 };
 
 /// Main interface to the Amber environment.
 class Amber {
  public:
-  Amber();
+  explicit Amber(Delegate* delegate);
   ~Amber();
 
   /// Parse the given |data| into the |recipe|. Perform validation if
@@ -128,6 +164,12 @@ class Amber {
   amber::Result ExecuteWithShaderData(const amber::Recipe* recipe,
                                       Options* opts,
                                       const ShaderMap& shader_data);
+
+  /// Returns the delegate object.
+  Delegate* GetDelegate() const { return delegate_; }
+
+ private:
+  Delegate* delegate_;
 };
 
 }  // namespace amber

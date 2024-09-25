@@ -1,4 +1,5 @@
 // Copyright 2018 The Amber Authors.
+// Copyright (C) 2024 Advanced Micro Devices, Inc. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -23,9 +24,11 @@
 
 #include "amber/shader_info.h"
 #include "amber/value.h"
+#include "src/acceleration_structure.h"
 #include "src/buffer.h"
 #include "src/command_data.h"
 #include "src/pipeline_data.h"
+#include "src/sampler.h"
 
 namespace amber {
 
@@ -39,12 +42,15 @@ class ComputeCommand;
 class CopyCommand;
 class DrawArraysCommand;
 class DrawRectCommand;
+class DrawGridCommand;
 class EntryPointCommand;
 class PatchParameterVerticesCommand;
 class Pipeline;
 class ProbeCommand;
 class ProbeSSBOCommand;
+class RayTracingCommand;
 class RepeatCommand;
+class TLASCommand;
 
 /// Base class for all commands.
 class Command {
@@ -59,13 +65,17 @@ class Command {
     kCopy,
     kDrawArrays,
     kDrawRect,
+    kDrawGrid,
     kEntryPoint,
     kPatchParameterVertices,
     kPipelineProperties,
     kProbe,
     kProbeSSBO,
     kBuffer,
-    kRepeat
+    kRepeat,
+    kSampler,
+    kTLAS,
+    kRayTracing
   };
 
   virtual ~Command();
@@ -73,9 +83,12 @@ class Command {
   Command::Type GetType() const { return command_type_; }
 
   bool IsDrawRect() const { return command_type_ == Type::kDrawRect; }
+  bool IsDrawGrid() const { return command_type_ == Type::kDrawGrid; }
   bool IsDrawArrays() const { return command_type_ == Type::kDrawArrays; }
   bool IsCompareBuffer() const { return command_type_ == Type::kCompareBuffer; }
   bool IsCompute() const { return command_type_ == Type::kCompute; }
+  bool IsRayTracing() const { return command_type_ == Type::kRayTracing; }
+  bool IsTLAS() const { return command_type_ == Type::kTLAS; }
   bool IsCopy() const { return command_type_ == Type::kCopy; }
   bool IsProbe() const { return command_type_ == Type::kProbe; }
   bool IsProbeSSBO() const { return command_type_ == Type::kProbeSSBO; }
@@ -96,9 +109,11 @@ class Command {
   ClearStencilCommand* AsClearStencil();
   CompareBufferCommand* AsCompareBuffer();
   ComputeCommand* AsCompute();
+  RayTracingCommand* AsRayTracing();
   CopyCommand* AsCopy();
   DrawArraysCommand* AsDrawArrays();
   DrawRectCommand* AsDrawRect();
+  DrawGridCommand* AsDrawGrid();
   EntryPointCommand* AsEntryPoint();
   PatchParameterVerticesCommand* AsPatchParameterVertices();
   ProbeCommand* AsProbe();
@@ -127,16 +142,20 @@ class PipelineCommand : public Command {
 
   Pipeline* GetPipeline() const { return pipeline_; }
 
+  void SetTimedExecution() { timed_execution_ = true; }
+  bool IsTimedExecution() const { return timed_execution_; }
+
  protected:
-  explicit PipelineCommand(Type type, Pipeline* pipeline);
+  PipelineCommand(Type type, Pipeline* pipeline);
 
   Pipeline* pipeline_ = nullptr;
+  bool timed_execution_ = false;
 };
 
 /// Command to draw a rectangle on screen.
 class DrawRectCommand : public PipelineCommand {
  public:
-  explicit DrawRectCommand(Pipeline* pipeline, PipelineData data);
+  DrawRectCommand(Pipeline* pipeline, PipelineData data);
   ~DrawRectCommand() override;
 
   const PipelineData* GetPipelineData() const { return &data_; }
@@ -171,19 +190,54 @@ class DrawRectCommand : public PipelineCommand {
   float height_ = 0.0;
 };
 
+/// Command to draw a grid of recrangles on screen.
+class DrawGridCommand : public PipelineCommand {
+ public:
+  DrawGridCommand(Pipeline* pipeline, PipelineData data);
+  ~DrawGridCommand() override;
+
+  const PipelineData* GetPipelineData() const { return &data_; }
+
+  void SetX(float x) { x_ = x; }
+  float GetX() const { return x_; }
+
+  void SetY(float y) { y_ = y; }
+  float GetY() const { return y_; }
+
+  void SetWidth(float w) { width_ = w; }
+  float GetWidth() const { return width_; }
+
+  void SetHeight(float h) { height_ = h; }
+  float GetHeight() const { return height_; }
+
+  void SetColumns(uint32_t c) { columns_ = c; }
+  uint32_t GetColumns() const { return columns_; }
+
+  void SetRows(uint32_t r) { rows_ = r; }
+  uint32_t GetRows() const { return rows_; }
+
+  std::string ToString() const override { return "DrawGridCommand"; }
+
+ private:
+  PipelineData data_;
+  float x_ = 0.0;
+  float y_ = 0.0;
+  float width_ = 0.0;
+  float height_ = 0.0;
+  uint32_t columns_ = 0;
+  uint32_t rows_ = 0;
+};
+
 /// Command to draw from a vertex and index buffer.
 class DrawArraysCommand : public PipelineCommand {
  public:
-  explicit DrawArraysCommand(Pipeline* pipeline, PipelineData data);
+  DrawArraysCommand(Pipeline* pipeline, PipelineData data);
   ~DrawArraysCommand() override;
 
   const PipelineData* GetPipelineData() const { return &data_; }
 
   void EnableIndexed() { is_indexed_ = true; }
   bool IsIndexed() const { return is_indexed_; }
-
-  void EnableInstanced() { is_instanced_ = true; }
-  bool IsInstanced() const { return is_instanced_; }
 
   void SetTopology(Topology topo) { topology_ = topo; }
   Topology GetTopology() const { return topology_; }
@@ -194,6 +248,9 @@ class DrawArraysCommand : public PipelineCommand {
   void SetVertexCount(uint32_t count) { vertex_count_ = count; }
   uint32_t GetVertexCount() const { return vertex_count_; }
 
+  void SetFirstInstance(uint32_t idx) { first_instance_ = idx; }
+  uint32_t GetFirstInstance() const { return first_instance_; }
+
   void SetInstanceCount(uint32_t count) { instance_count_ = count; }
   uint32_t GetInstanceCount() const { return instance_count_; }
 
@@ -202,27 +259,37 @@ class DrawArraysCommand : public PipelineCommand {
  private:
   PipelineData data_;
   bool is_indexed_ = false;
-  bool is_instanced_ = false;
   Topology topology_ = Topology::kUnknown;
   uint32_t first_vertex_index_ = 0;
   uint32_t vertex_count_ = 0;
-  uint32_t instance_count_ = 0;
+  uint32_t first_instance_ = 0;
+  uint32_t instance_count_ = 1;
 };
 
 /// A command to compare two buffers.
 class CompareBufferCommand : public Command {
  public:
+  enum class Comparator { kEq, kRmse, kHistogramEmd };
+
   CompareBufferCommand(Buffer* buffer_1, Buffer* buffer_2);
   ~CompareBufferCommand() override;
 
   Buffer* GetBuffer1() const { return buffer_1_; }
   Buffer* GetBuffer2() const { return buffer_2_; }
 
+  void SetComparator(Comparator type) { comparator_ = type; }
+  Comparator GetComparator() const { return comparator_; }
+
+  void SetTolerance(float tolerance) { tolerance_ = tolerance; }
+  float GetTolerance() const { return tolerance_; }
+
   std::string ToString() const override { return "CompareBufferCommand"; }
 
  private:
   Buffer* buffer_1_;
   Buffer* buffer_2_;
+  float tolerance_ = 0.0;
+  Comparator comparator_ = Comparator::kEq;
 };
 
 /// Command to execute a compute command.
@@ -284,7 +351,7 @@ class Probe : public Command {
   const std::vector<Tolerance>& GetTolerances() const { return tolerances_; }
 
  protected:
-  explicit Probe(Type type, Buffer* buffer);
+  Probe(Type type, Buffer* buffer);
 
  private:
   Buffer* buffer_;
@@ -386,8 +453,8 @@ class ProbeSSBOCommand : public Probe {
   void SetOffset(uint32_t offset) { offset_ = offset; }
   uint32_t GetOffset() const { return offset_; }
 
-  void SetFormat(std::unique_ptr<Format> fmt) { format_ = std::move(fmt); }
-  Format* GetFormat() const { return format_.get(); }
+  void SetFormat(Format* fmt) { format_ = fmt; }
+  Format* GetFormat() const { return format_; }
 
   void SetValues(std::vector<Value>&& values) { values_ = std::move(values); }
   const std::vector<Value>& GetValues() const { return values_; }
@@ -399,30 +466,15 @@ class ProbeSSBOCommand : public Probe {
   uint32_t descriptor_set_id_ = 0;
   uint32_t binding_num_ = 0;
   uint32_t offset_ = 0;
-  std::unique_ptr<Format> format_;
+  Format* format_;
   std::vector<Value> values_;
 };
 
-/// Command to set the size of a buffer, or update a buffers contents.
-class BufferCommand : public PipelineCommand {
+/// Base class for BufferCommand and SamplerCommand to handle binding.
+class BindableResourceCommand : public PipelineCommand {
  public:
-  enum class BufferType {
-    kSSBO,
-    kUniform,
-    kPushConstant,
-  };
-
-  explicit BufferCommand(BufferType type, Pipeline* pipeline);
-  ~BufferCommand() override;
-
-  bool IsSSBO() const { return buffer_type_ == BufferType::kSSBO; }
-  bool IsUniform() const { return buffer_type_ == BufferType::kUniform; }
-  bool IsPushConstant() const {
-    return buffer_type_ == BufferType::kPushConstant;
-  }
-
-  void SetIsSubdata() { is_subdata_ = true; }
-  bool IsSubdata() const { return is_subdata_; }
+  BindableResourceCommand(Type type, Pipeline* pipeline);
+  ~BindableResourceCommand() override;
 
   void SetDescriptorSet(uint32_t set) { descriptor_set_ = set; }
   uint32_t GetDescriptorSet() const { return descriptor_set_; }
@@ -430,8 +482,82 @@ class BufferCommand : public PipelineCommand {
   void SetBinding(uint32_t num) { binding_num_ = num; }
   uint32_t GetBinding() const { return binding_num_; }
 
+ private:
+  uint32_t descriptor_set_ = 0;
+  uint32_t binding_num_ = 0;
+};
+
+/// Command to set the size of a buffer, or update a buffers contents.
+class BufferCommand : public BindableResourceCommand {
+ public:
+  enum class BufferType {
+    kSSBO,
+    kSSBODynamic,
+    kUniform,
+    kUniformDynamic,
+    kPushConstant,
+    kStorageImage,
+    kSampledImage,
+    kCombinedImageSampler,
+    kUniformTexelBuffer,
+    kStorageTexelBuffer
+  };
+
+  BufferCommand(BufferType type, Pipeline* pipeline);
+  ~BufferCommand() override;
+
+  bool IsSSBO() const { return buffer_type_ == BufferType::kSSBO; }
+  bool IsSSBODynamic() const {
+    return buffer_type_ == BufferType::kSSBODynamic;
+  }
+  bool IsUniform() const { return buffer_type_ == BufferType::kUniform; }
+  bool IsUniformDynamic() const {
+    return buffer_type_ == BufferType::kUniformDynamic;
+  }
+  bool IsStorageImage() const {
+    return buffer_type_ == BufferType::kStorageImage;
+  }
+  bool IsSampledImage() const {
+    return buffer_type_ == BufferType::kSampledImage;
+  }
+  bool IsCombinedImageSampler() const {
+    return buffer_type_ == BufferType::kCombinedImageSampler;
+  }
+  bool IsUniformTexelBuffer() const {
+    return buffer_type_ == BufferType::kUniformTexelBuffer;
+  }
+  bool IsStorageTexelBuffer() const {
+    return buffer_type_ == BufferType::kStorageTexelBuffer;
+  }
+  bool IsPushConstant() const {
+    return buffer_type_ == BufferType::kPushConstant;
+  }
+
+  void SetIsSubdata() { is_subdata_ = true; }
+  bool IsSubdata() const { return is_subdata_; }
+
   void SetOffset(uint32_t offset) { offset_ = offset; }
   uint32_t GetOffset() const { return offset_; }
+
+  void SetBaseMipLevel(uint32_t base_mip_level) {
+    base_mip_level_ = base_mip_level;
+  }
+  uint32_t GetBaseMipLevel() const { return base_mip_level_; }
+
+  void SetDynamicOffset(uint32_t dynamic_offset) {
+    dynamic_offset_ = dynamic_offset;
+  }
+  uint32_t GetDynamicOffset() const { return dynamic_offset_; }
+
+  void SetDescriptorOffset(uint64_t descriptor_offset) {
+    descriptor_offset_ = descriptor_offset;
+  }
+  uint64_t GetDescriptorOffset() const { return descriptor_offset_; }
+
+  void SetDescriptorRange(uint64_t descriptor_range) {
+    descriptor_range_ = descriptor_range;
+  }
+  uint64_t GetDescriptorRange() const { return descriptor_range_; }
 
   void SetValues(std::vector<Value>&& values) { values_ = std::move(values); }
   const std::vector<Value>& GetValues() const { return values_; }
@@ -439,16 +565,37 @@ class BufferCommand : public PipelineCommand {
   void SetBuffer(Buffer* buffer) { buffer_ = buffer; }
   Buffer* GetBuffer() const { return buffer_; }
 
+  void SetSampler(Sampler* sampler) { sampler_ = sampler; }
+  Sampler* GetSampler() const { return sampler_; }
+
   std::string ToString() const override { return "BufferCommand"; }
 
  private:
   Buffer* buffer_ = nullptr;
+  Sampler* sampler_ = nullptr;
   BufferType buffer_type_;
   bool is_subdata_ = false;
-  uint32_t descriptor_set_ = 0;
-  uint32_t binding_num_ = 0;
   uint32_t offset_ = 0;
+  uint32_t base_mip_level_ = 0;
+  uint32_t dynamic_offset_ = 0;
+  uint64_t descriptor_offset_ = 0;
+  uint64_t descriptor_range_ = ~0ULL;
   std::vector<Value> values_;
+};
+
+/// Command for setting sampler parameters and binding.
+class SamplerCommand : public BindableResourceCommand {
+ public:
+  explicit SamplerCommand(Pipeline* pipeline);
+  ~SamplerCommand() override;
+
+  void SetSampler(Sampler* sampler) { sampler_ = sampler; }
+  Sampler* GetSampler() const { return sampler_; }
+
+  std::string ToString() const override { return "SamplerCommand"; }
+
+ private:
+  Sampler* sampler_ = nullptr;
 };
 
 /// Command to clear the colour attachments.
@@ -575,6 +722,60 @@ class RepeatCommand : public Command {
  private:
   uint32_t count_ = 0;
   std::vector<std::unique_ptr<Command>> commands_;
+};
+
+/// Command for setting TLAS parameters and binding.
+class TLASCommand : public BindableResourceCommand {
+ public:
+  explicit TLASCommand(Pipeline* pipeline);
+  ~TLASCommand() override;
+
+  void SetTLAS(TLAS* tlas) { tlas_ = tlas; }
+  TLAS* GetTLAS() const { return tlas_; }
+
+  std::string ToString() const override { return "TLASCommand"; }
+
+ private:
+  TLAS* tlas_ = nullptr;
+};
+
+/// Command to execute a ray tracing command.
+class RayTracingCommand : public PipelineCommand {
+ public:
+  explicit RayTracingCommand(Pipeline* pipeline);
+  ~RayTracingCommand() override;
+
+  void SetX(uint32_t x) { x_ = x; }
+  uint32_t GetX() const { return x_; }
+
+  void SetY(uint32_t y) { y_ = y; }
+  uint32_t GetY() const { return y_; }
+
+  void SetZ(uint32_t z) { z_ = z; }
+  uint32_t GetZ() const { return z_; }
+
+  void SetRGenSBTName(const std::string& name) { rgen_sbt_name_ = name; }
+  std::string GetRayGenSBTName() const { return rgen_sbt_name_; }
+
+  void SetMissSBTName(const std::string& name) { miss_sbt_name_ = name; }
+  std::string GetMissSBTName() const { return miss_sbt_name_; }
+
+  void SetHitsSBTName(const std::string& name) { hits_sbt_name_ = name; }
+  std::string GetHitsSBTName() const { return hits_sbt_name_; }
+
+  void SetCallSBTName(const std::string& name) { call_sbt_name_ = name; }
+  std::string GetCallSBTName() const { return call_sbt_name_; }
+
+  std::string ToString() const override { return "RayTracingCommand"; }
+
+ private:
+  uint32_t x_ = 0;
+  uint32_t y_ = 0;
+  uint32_t z_ = 0;
+  std::string rgen_sbt_name_;
+  std::string miss_sbt_name_;
+  std::string hits_sbt_name_;
+  std::string call_sbt_name_;
 };
 
 }  // namespace amber

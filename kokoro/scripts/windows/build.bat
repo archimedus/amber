@@ -18,7 +18,11 @@ set BUILD_ROOT=%cd%
 set SRC=%cd%\github\amber
 set BUILD_TYPE=%1
 
-set PATH=C:\python36;%PATH%
+choco install cmake --yes --no-progress --limit-output
+choco upgrade cmake --yes --no-progress --limit-output
+
+:: Force usage of python 3.6 and add cmake to the path.
+set PATH=C:\python36;"C:\Program Files\CMake\bin";%PATH%
 
 cd %SRC%
 python tools\git-sync-deps
@@ -26,8 +30,10 @@ python tools\git-sync-deps
 :: #########################################
 :: set up msvc build env
 :: #########################################
-call "C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Auxiliary\Build\vcvarsall.bat" x64
-echo "Using VS 2017..."
+call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Auxiliary\Build\vcvarsall.bat" x64
+echo "Using VS 2019..."
+
+cmake --version
 
 cd %SRC%
 mkdir build

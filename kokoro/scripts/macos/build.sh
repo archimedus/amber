@@ -19,6 +19,8 @@ set -x  # show commands
 BUILD_ROOT=$PWD
 SRC=$PWD/github/amber
 BUILD_TYPE=$1
+shift
+EXTRA_CONFIG=$@
 
 # Get ninja
 wget -q https://github.com/ninja-build/ninja/releases/download/v1.8.2/ninja-mac.zip
@@ -26,8 +28,22 @@ unzip -q ninja-mac.zip
 chmod +x ninja
 export PATH="$PWD:$PATH"
 
+# Get Cmake (required for Kokoro Apple Silicon images)
+CMAKE_VER=3.30.2
+wget -q https://github.com/Kitware/CMake/releases/download/v$CMAKE_VER/cmake-$CMAKE_VER-macos-universal.tar.gz
+tar xf cmake-$CMAKE_VER-macos-universal.tar.gz
+chmod +x cmake-$CMAKE_VER-macos-universal/CMake.app/Contents/bin/*
+export PATH="$PWD/cmake-$CMAKE_VER-macos-universal/CMake.app/Contents/bin:$PATH"
+
+echo $(date): $(cmake --version)
+
+DEPS_ARGS=""
+if [[ "$EXTRA_CONFIG" =~ "ENABLE_SWIFTSHADER=TRUE" ]]; then
+  DEPS_ARGS+=" --with-swiftshader"
+fi
+
 cd $SRC
-./tools/git-sync-deps
+./tools/git-sync-deps $DEPS_ARGS
 
 mkdir build && cd $SRC/build
 
@@ -36,7 +52,10 @@ CMAKE_C_CXX_COMPILER="-DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++"
 # Invoke the build.
 BUILD_SHA=${KOKORO_GITHUB_COMMIT:-$KOKORO_GITHUB_PULL_REQUEST_COMMIT}
 echo $(date): Starting build...
-cmake -GNinja -DCMAKE_BUILD_TYPE=$BUILD_TYPE $CMAKE_C_CXX_COMPILER -DAMBER_USE_LOCAL_VULKAN=1 ..
+cmake -GNinja -DCMAKE_BUILD_TYPE=$BUILD_TYPE $CMAKE_C_CXX_COMPILER \
+  -DAMBER_USE_LOCAL_VULKAN=1 \
+  -DAMBER_ENABLE_SWIFTSHADER=1 \
+  ..
 
 echo $(date): Build everything...
 ninja
@@ -46,6 +65,13 @@ echo $(date): Starting amber_unittests...
 ./amber_unittests
 echo $(date): amber_unittests completed.
 
-#echo $(date): Starting integration tests..
-#../../test/run_tests.py
-#echo $(date): integration tests completed.
+# Tests currently fail on Debug build on the bots
+if [[ "$EXTRA_CONFIG" =~ "ENABLE_SWIFTSHADER=TRUE" ]]; then
+  echo $(date): Starting integration tests..
+  export LD_LIBRARY_PATH=build/third_party/vulkan-loader/loader
+  export VK_LAYER_PATH=build/third_party/vulkan-validationlayers/layers
+  export VK_ICD_FILENAMES=build/Darwin/vk_swiftshader_icd.json
+  cd $SRC
+  ./tests/run_tests.py --build-dir $SRC/build --use-swiftshader
+  echo $(date): integration tests completed.
+fi

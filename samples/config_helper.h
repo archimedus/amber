@@ -35,10 +35,12 @@ class ConfigHelperImpl {
   virtual amber::Result CreateConfig(
       uint32_t engine_major,
       uint32_t engine_minor,
+      int32_t selected_device,
       const std::vector<std::string>& required_features,
       const std::vector<std::string>& required_instance_extensions,
       const std::vector<std::string>& required_device_extensions,
       bool disable_validation_layer,
+      bool enable_pipeline_runtime_layer,
       bool show_version_info,
       std::unique_ptr<amber::EngineConfig>* config) = 0;
 };
@@ -58,10 +60,12 @@ class ConfigHelper {
       amber::EngineType engine,
       uint32_t engine_major,
       uint32_t engine_minor,
+      int32_t selected_device,
       const std::vector<std::string>& required_features,
       const std::vector<std::string>& required_instance_extensions,
       const std::vector<std::string>& required_device_extensions,
       bool disable_validation_layer,
+      bool enable_pipeline_runtime_layer,
       bool show_version_info,
       std::unique_ptr<amber::EngineConfig>* config);
 

@@ -1,4 +1,5 @@
 // Copyright 2018 The Amber Authors.
+// Copyright (C) 2024 Advanced Micro Devices, Inc. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,6 +18,7 @@
 
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "amber/amber.h"
@@ -28,10 +30,13 @@
 
 namespace amber {
 
+class VirtualFileStore;
+
 /// EngineData stores information used during engine execution.
 struct EngineData {
   /// The timeout to use for fences, in milliseconds.
-  uint32_t fence_timeout_ms = 100;
+  uint32_t fence_timeout_ms = 10000;
+  bool pipeline_runtime_layer_enabled = false;
 };
 
 /// Abstract class which describes a backing engine for Amber.
@@ -67,6 +72,7 @@ class Engine {
       EngineConfig* config,
       Delegate* delegate,
       const std::vector<std::string>& features,
+      const std::vector<std::string>& properties,
       const std::vector<std::string>& instance_extensions,
       const std::vector<std::string>& device_extensions) = 0;
 
@@ -88,11 +94,17 @@ class Engine {
   /// Execute the draw rect command
   virtual Result DoDrawRect(const DrawRectCommand* cmd) = 0;
 
+  /// Execute the draw grid command
+  virtual Result DoDrawGrid(const DrawGridCommand* cmd) = 0;
+
   /// Execute the draw arrays command
   virtual Result DoDrawArrays(const DrawArraysCommand* cmd) = 0;
 
   /// Execute the compute command
   virtual Result DoCompute(const ComputeCommand* cmd) = 0;
+
+  /// Execute the trace rays command
+  virtual Result DoTraceRays(const RayTracingCommand* cmd) = 0;
 
   /// Execute the entry point command
   virtual Result DoEntryPoint(const EntryPointCommand* cmd) = 0;

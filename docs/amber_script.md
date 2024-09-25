@@ -34,8 +34,37 @@ DEVICE_FEATURE VariablePointerFeatures.variablePointersStorageBuffer
 ```
 
 Currently each of the items in `VkPhysicalDeviceFeatures` are recognized along
-with `VariablePointerFeatures.variablePointers` and
-`VariablePointerFeatures.variablePointersStorageBuffer`.
+with:
+ * `VariablePointerFeatures.variablePointers`
+ * `VariablePointerFeatures.variablePointersStorageBuffer`
+ * `Float16Int8Features.shaderFloat16`
+ * `Float16Int8Features.shaderInt8`
+ * `Storage8BitFeatures.storageBuffer8BitAccess`
+ * `Storage8BitFeatures.uniformAndStorageBuffer8BitAccess`
+ * `Storage8BitFeatures.storagePushConstant8`
+ * `Storage16BitFeatures.storageBuffer16BitAccess`
+ * `Storage16BitFeatures.uniformAndStorageBuffer16BitAccess`
+ * `Storage16BitFeatures.storagePushConstant16`
+ * `Storage16BitFeatures.storageInputOutput16`
+ * `SubgroupSizeControl.subgroupSizeControl`
+ * `SubgroupSizeControl.computeFullSubgroups`
+ * `SubgroupSupportedOperations.basic`
+ * `SubgroupSupportedOperations.vote`
+ * `SubgroupSupportedOperations.arithmetic`
+ * `SubgroupSupportedOperations.ballot`
+ * `SubgroupSupportedOperations.shuffle`
+ * `SubgroupSupportedOperations.shuffleRelative`
+ * `SubgroupSupportedOperations.clustered`
+ * `SubgroupSupportedOperations.quad`
+ * `SubgroupSupportedStages.vertex`
+ * `SubgroupSupportedStages.tessellationControl`
+ * `SubgroupSupportedStages.tessellationEvaluation`
+ * `SubgroupSupportedStages.geometry`
+ * `SubgroupSupportedStages.fragment`
+ * `SubgroupSupportedStages.compute`
+ * `RayTracingPipelineFeaturesKHR.rayTracingPipeline`
+ * `AccelerationStructureFeaturesKHR.accelerationStructure`
+ * `BufferDeviceAddressFeatures.bufferDeviceAddress`
 
 Extensions can be enabled with the `DEVICE_EXTENSION` and `INSTANCE_EXTENSION`
 commands.
@@ -58,7 +87,62 @@ set of data types.
 SET ENGINE_DATA {engine data variable} {value}*
 ```
 
+### Virtual File Store
+
+Each amber script contains a virtual file system that can store files of textual
+data. This lets you bundle multiple source files into a single, hermetic amber
+script file.
+
+Virtual files are declared using the `VIRTUAL_FILE` command:
+
+```groovy
+VIRTUAL_FILE {path}
+ {file-content}
+END
+```
+
+Paths must be unique.
+
+Shaders can directly reference these virtual files for their source. \
+HLSL shaders that `#include` other `.hlsl` files will first check the virtual
+file system, before falling back to the standard file system.
+
 ### Shaders
+
+Shader programs are declared using the `SHADER` command. \
+Shaders can be declared as `PASSTHROUGH`, with inlined source or using source
+from a `VIRTUAL_FILE`.
+
+Pass-through shader:
+
+```groovy
+# Creates a passthrough vertex shader. The shader passes the vec4 at input
+# location 0 through to the `gl_Position`.
+SHADER vertex {shader_name} PASSTHROUGH
+```
+
+Shader using inlined source:
+
+```groovy
+# Creates a shader of |shader_type| with the given |shader_name|. The shader
+# will be of |shader_format|. The shader source then follows and is terminated
+# with the |END| tag.
+SHADER {shader_type} {shader_name} {shader_format} [ TARGET_ENV {target_env} ]
+{shader_source}
+END
+```
+
+Shader using source from `VIRTUAL_FILE`:
+
+```groovy
+# Creates a shader of |shader_type| with the given |shader_name|. The shader
+# will be of |shader_format|. The shader will use the virtual file with |path|.
+SHADER {shader_type} {shader_name} {shader_format} [ TARGET_ENV {target_env} ] VIRTUAL_FILE {path}
+```
+
+`{shader_name}` is used to identify the shader to attach to `PIPELINE`s,
+
+`{shader_type}` and `{shader_format}` are described below:
 
 #### Shader Type
  * `vertex`
@@ -67,11 +151,18 @@ SET ENGINE_DATA {engine data variable} {value}*
  * `tessellation_evaluation`
  * `tessellation_control`
  * `compute`
+ * `ray_generation`
+ * `any_hit`
+ * `closest_hit`
+ * `miss`
+ * `intersection`
+ * `callable`
  * `multi`
 
 The compute pipeline can only contain compute shaders. The graphics pipeline
 can not contain compute shaders, and must contain a vertex shader and a fragment
-shader.
+shader. Ray tracing pipeline can contain only shaders of ray tracing types:
+ray generation, any hit, closest hit, miss, intersection, and callable shaders.
 
 The provided `multi` shader can only be used with `SPIRV-ASM` and `SPIRV-HEX`
 and allows for providing multiple shaders in a single module (so the `vertex`
@@ -82,23 +173,44 @@ types, but in that case must only provide a single shader type in the module.
 
 #### Shader Format
  * `GLSL`  (with glslang)
- * `HLSL`  (with dxc or glslang if dxc disabled)  -- future
- * `SPIRV-ASM` (with spirv-as)
+ * `HLSL`  (with dxc or glslang if dxc disabled)
+ * `SPIRV-ASM` (with spirv-as; specifying `TARGET_ENV` is _highly recommended_
+    in this case, as explained below)
  * `SPIRV-HEX` (decoded straight to SPIR-V)
- * `OPENCL-C` (with clspv)  --- potentially?  -- future
+ * `OPENCL-C` (with clspv)
 
-```groovy
-# Creates a passthrough vertex shader. The shader passes the vec4 at input
-# location 0 through to the `gl_Position`.
-SHADER vertex {shader_name} PASSTHROUGH
+### Target environment
 
-# Creates a shader of |shader_type| with the given |shader_name|. The shader
-# will be of |shader_format|. The shader should then be inlined before the
-# |END| tag.
-SHADER {shader_type} {shader_name} {shader_format}
-...
-END
-```
+Specifying `TARGET_ENV` is optional and can be used to select a target
+SPIR-V environment. For example:
+
+ * `spv1.0`
+ * `spv1.5`
+ * `vulkan1.0`
+ * `vulkan1.2`
+
+Check the help text of the corresponding tool (e.g. spirv-as, glslangValidator)
+for the full list. The `SPIRV-HEX` shader format is not affected by the target
+environment.
+
+The specified target environment for the shader overrides the default (`spv1.0`)
+or the one specified on the command line.
+
+Specifying the target environment when using the `SPIRV-ASM` shader format
+is _highly recommended_, otherwise the SPIR-V version of the final SPIR-V binary
+shader passed to the graphics device might not be what you expect.
+Typically, SPIR-V assembly text will contain a comment near the beginning similar
+to `; Version: 1.0` but this is _ignored_ by the spirv-as assembler.
+Thus, you should specify the equivalent target environment (e.g. `spv1.0`)
+in the `SHADER` command.
+
+Specifying the target environment for other shader formats depends on whether
+you want to vary the final SPIR-V shader binary based on the target environment
+specified on the command line. For example, you could write one AmberScript file
+that contains a GLSL shader without specifying a target environment.
+You could then run the AmberScript file several times with different
+target environments specified on the command line
+(`spv1.0`, `spv1.1`, `spv1.2`, etc.) to test the different SPIR-V shader variants.
 
 ### Buffers
 
@@ -114,31 +226,93 @@ either image buffers or, what the target API would refer to as a buffer.
  * `uint16`
  * `uint32`
  * `uint64`
+ * `float16`
  * `float`
  * `double`
  * vec[2,3,4]{type}
- * mat[2,3,4]x[2,3,4]{type}
+ * mat[2,3,4]x[2,3,4]{type}  (mat<columns>x<rows>)
  * Any of the `Image Formats` listed below.
+ * For any of the non-Image Formats types above appending '[]' will treat the
+    data as an array. e.g. int8[], vec2<float>[]
 
 Sized arrays and structures are not currently representable.
 
 ```groovy
-# Filling the buffer with a given set of data. The values must be
-# of |type| data. The data can be provided as the type or as a hex value.
-BUFFER {name} DATA_TYPE {type} DATA
-_value_+
-END
+# Filling the buffer with a given initializer. Initializer data must be
+# of |type|. Buffers are STD430 by default.
+BUFFER {name} DATA_TYPE {type} {STD140 | STD430} {initializer}
 
 # Defines a buffer which is filled with data as specified by the `initializer`.
-BUFFER {name} DATA_TYPE {type} SIZE _size_in_items_ {initializer}
+BUFFER {name} DATA_TYPE {type} {STD140 | STD430} SIZE _size_in_items_ \
+    {initializer}
+
+# Deprecated
+# Defines a buffer with width and height and filled by data as specified by the
+# `initializer`.
+BUFFER {name} DATA_TYPE {type} {STD140 | STD430} WIDTH {w} HEIGHT {h} \
+  {initializer}
+
+# Defines a buffer which is filled with binary data from a file specified
+# by `FILE`.
+BUFFER {name} DATA_TYPE {type} {STD140 | STD430} SIZE _size_in_items_ \
+    FILE BINARY {file_name}
+
+# Defines a buffer which is filled with text data parsed from a file specified
+# by `FILE`.
+BUFFER {name} DATA_TYPE {type} {STD140 | STD430} SIZE _size_in_items_ \
+    FILE TEXT {file_name}
 
 # Creates a buffer which will store the given `FORMAT` of data. These
 # buffers are used as image and depth buffers in the `PIPELINE` commands.
 # The buffer will be sized based on the `RENDER_SIZE` of the `PIPELINE`.
-BUFFER {name} FORMAT {format_string}
+# For multisampled images use value greater than one for `SAMPLES`. Allowed
+# sample counts are 1, 2, 4, 8, 16, 32, and 64. Note that Amber doesn't
+# preserve multisampled images across pipelines.
+BUFFER {name} FORMAT {format_string} \
+    [ MIP_LEVELS _mip_levels_ (default 1) ] \
+    [ SAMPLES _samples_ (default 1) ]
+
+# Load buffer data from a PNG image with file name specified by `FILE`.
+# The file path is relative to the script file being run. Format specified
+# by `FORMAT` must match the image format.
+BUFFER {name} FORMAT {format_string} FILE PNG {file_name.png}
+```
+
+#### Images
+
+An AmberScript image is a specialized buffer that specifies image-specific
+attributes.
+
+##### Dimensionality
+ * `DIM_1D` -- A 1-dimensional image
+ * `DIM_2D` -- A 2-dimensional image
+ * `DIM_3D` -- A 3-dimensional image
+
+```groovy
+# Specify an image buffer with a format. HEIGHT is necessary for DIM_2D and
+# DIM_3D. DEPTH is necessary for DIM_3D.
+IMAGE {name} FORMAT {format_string} [ MIP_LEVELS _mip_levels_ (default 1) ] \
+    [ SAMPLES _samples_ (default 1) ] \
+    {dimensionality} \
+    WIDTH {w} [ HEIGHT {h} [ DEPTH {d} ] ] \
+    {initializer}
+
+# Specify an image buffer with a data type. HEIGHT is necessary for DIM_2D and
+# DIM_3D. DEPTH is necessary for DIM_3D.
+IMAGE {name} DATA_TYPE {type} {dimensionality} \
+    WIDTH {w} [ HEIGHT {h} [ DEPTH {d} ] ] \
+    {intializer}
 ```
 
 #### Buffer Initializers
+
+```groovy
+# Filling the buffer with a given set of data. The values must be
+# of the correct type. The data can be provided as the type or as a hex
+# value.
+DATA
+_value_+
+END
 
 ```groovy
 # Fill the buffer with a single value.
@@ -161,15 +335,176 @@ SERIES_FROM _start_ INC_BY _inc_
 COPY {buffer_from} TO {buffer_to}
 ```
 
+### Samplers
+
+Samplers are used for sampling buffers that are bound to a pipeline as
+sampled image or combined image sampler.
+
+#### Filter types
+ * `nearest`
+ * `linear`
+
+#### Address modes
+ * `repeat`
+ * `mirrored_repeat`
+ * `clamp_to_edge`
+ * `clamp_to_border`
+ * `mirrored_clamp_to_edge`
+
+#### Border colors
+ * `float_transparent_black`
+ * `int_transparent_black`
+ * `float_opaque_black`
+ * `int_opaque_black`
+ * `float_opaque_white`
+ * `int_opaque_white`
+
+#### Compare operations
+* `never`
+* `less`
+* `equal`
+* `less_or_equal`
+* `greater`
+* `not_equal`
+* `greater_or_equal`
+* `always`
+
+```groovy
+
+# Creates a sampler with |name|. |compare_enable| is either on or off.
+SAMPLER {name} \
+    [ MAG_FILTER {filter_type} (default nearest) ] \
+    [ MIN_FILTER {filter_type} (default nearest) ] \
+    [ ADDRESS_MODE_U {address_mode} (default repeat) ] \
+    [ ADDRESS_MODE_V {address_mode} (default repeat) ] \
+    [ ADDRESS_MODE_W {address_mode} (default repeat) ] \
+    [ BORDER_COLOR {border_color} (default float_transparent_black) ] \
+    [ MIN_LOD _val_ (default 0.0) ] \
+    [ MAX_LOD _val_ (default 1.0) ] \
+    [ NORMALIZED_COORDS | UNNORMALIZED_COORDS (default NORMALIZED_COORDS) ] \
+    [ COMPARE _compare_enable_ (default off) ] \
+    [ COMPARE_OP _compare_op_ (default never) ]
+```
+
+Note: unnormalized coordinates will override MIN\_LOD and MAX\_LOD to 0.0.
+
+#### OpenCL Literal Samplers
+
+Literal constant samplers defined in the OpenCL program are automatically
+generated and bound to the pipeline in Amber.
+
+Note: currently the border color is always transparent black.
+
+Note: the addressing mode is used for all coordinates currently. Arrayed images
+should use `clamp_to_edge` for the array index.
+
+### Acceleration Structures
+
+Acceleration structures are used to enumerate geometries to describe a scene.
+There are two kinds of acceleration structures:
+ * Bottom level
+ * Top level
+
+#### Bottom Level
+
+Bottom level acceleration structures consists of a set of geometries.
+Each bottom level acceleration structure can consists either of triangle or
+axis aligned bounding box (AABB) geometries. It is prohibited to mix triangle
+geometries and AABBs inside same bottom level acceleration structures.
+
+A bottom level acceleration structure consisting of triangle geometries is defined as:
+
+```groovy
+  # Bottom level acceleration structure consisting of triangles
+  ACCELERATION_STRUCTURE BOTTOM_LEVEL {name_of_bottom_level_acceleration_structure}
+    {GEOMETRY TRIANGLES
+      [FLAGS <geometry_flags>]
+      {x0 y0 z0
+       x1 y1 z1
+       x2 y2 z2}+
+    END}+
+  END
+```
+
+A bottom level acceleration structure consisting of axis aligned bounding boxes is defined as:
+
+```groovy
+  # Bottom level acceleration structure consisting of AABBs
+  ACCELERATION_STRUCTURE BOTTOM_LEVEL {name_of_bottom_level_acceleration_structure}
+    {GEOMETRY AABBS
+      [FLAGS <geometry_flags>]
+      {x0 y0 z0 x1 y1 z1}+
+    END}+
+  END
+```
+
+Each coordinate |x{n}|, |y{n}|, and |z{n}| should be floating point values.
+
+FLAGS is a space separated list of following geometry flags:
+ * OPAQUE
+ * NO_DUPLICATE_ANY_HIT
+
+#### Top Level
+
+Top level acceleration structures consists of a set of instances of bottom
+level acceleration structures.
+
+```groovy
+  # Acceleration structure with instance defined in one line
+  ACCELERATION_STRUCTURE TOP_LEVEL {name_of_top_level_acceleration_structure}
+    {BLAS_INSTANCE USE {name_of_bottom_level_acceleration_structure}}+
+  END
+
+  # Acceleration structure with instance defined in multiple lines
+  ACCELERATION_STRUCTURE TOP_LEVEL {name_of_top_level_acceleration_structure}
+    {BOTTOM_LEVEL_INSTANCE {name_of_bottom_level_acceleration_structure}
+      [INDEX {index}]
+      [OFFSET {offset}]
+      [FLAGS {flags}]
+      [MASK {mask}]
+      [TRANSFORM \
+        {transform} \
+      END]
+    END}+
+  END
+```
+
+The value of |index| should be an integer in range of [0..16,777,215] is a 24-bit user-specified
+index value accessible to ray shaders in the InstanceCustomIndexKHR built-in.
+
+The value of |offset| should be an integer in range of [0..16,777,215] is a 24-bit offset used
+in calculating the hit shader binding table index.
+
+The value of |mask| should be an integer in range of [0..255] (may be specified as 0xNN) is an
+8-bit visibility mask for the geometry.
+
+The value of |flags| is space-separated or EOL-separated list of following:
+ * `TRIANGLE_FACING_CULL_DISABLE`
+ * `TRIANGLE_FLIP_FACING`
+ * `FORCE_OPAQUE`
+ * `FORCE_NO_OPAQUE`
+ * `FORCE_OPACITY_MICROMAP_2_STATE`
+ * `DISABLE_OPACITY_MICROMAPS`
+ * <any integer number>
+
+If |flags| is a EOL-separated list it should be ended with END statement.
+If |flags| is a space-separated list it should not be ended with END statement.
+
+The |transform| is 12 space-separated values describing a 3x4 row-major affine transformation matrix applied to
+the acceleration structure.
+
+
 ### Pipelines
 
 #### Pipeline type
  * `compute`
  * `graphics`
-
+ * `ray_tracing`
+ 
 ```groovy
-# The PIPELINE command creates a pipeline. This can be either compute or
-# graphics. Shaders are attached to the pipeline at pipeline creation time.
+# The PIPELINE command creates a pipeline. This can be either compute,
+# graphics, or ray_tracing. Shaders are attached to the pipeline
+# at pipeline creation time.
 PIPELINE {pipeline_type} {pipeline_name}
 ...
 END
@@ -184,15 +519,11 @@ END
 
 The following commands are all specified within the `PIPELINE` command.
 ```groovy
-  # Attach the shader provided by |name_of_shader| to the pipeline and set
-  # the entry point to be |name|. The provided shader for ATTACH must _not_ be
+  # Attach the shader provided by |name_of_shader| to the pipeline with an
+  # entry point name of |name|. The provided shader for ATTACH must _not_ be
   # a 'multi' shader.
-  ATTACH {name_of_shader} ENTRY_POINT {name}
-
-  # Attach the shader provided by |name_of_shader| to the pipeline and set
-  # the entry point to be 'main'. The provided shader for ATTACH must _not_ be
-  # a 'multi' shader.
-  ATTACH {name_of_shader}
+  ATTACH {name_of_shader} \
+      [ ENTRY_POINT {name} (default "main") ]
 
   # Attach a 'multi' shader to the pipeline of |shader_type| and use the entry
   # point with |name|. The provided shader _must_ be a 'multi' shader.
@@ -201,8 +532,10 @@ The following commands are all specified within the `PIPELINE` command.
   # Attach specialized shader. Specialization can be specified multiple times.
   # Specialization values must be a 32-bit type. Shader type and entry point
   # must be specified prior to specializing the shader.
-  ATTACH {name_of_shader} SPECIALIZE 1 AS uint32 4
-  ATTACH {name_of_shader} SPECIALIZE 1 AS uint32 4 SPECIALIZE 4 AS float 1.0
+  ATTACH {name_of_shader} SPECIALIZE _id_ AS uint32 _value_
+  ATTACH {name_of_shader} \
+      SPECIALIZE _id_ AS uint32 _value_ \
+      SPECIALIZE _id_ AS float _value_
 ```
 
 ```groovy
@@ -214,9 +547,280 @@ The following commands are all specified within the `PIPELINE` command.
 ```
 
 ```groovy
+  # Set the compile options used to compile the given shader. Options are parsed
+  # the same as on the command line. Currently, only supported for OPENCL-C shaders.
+  COMPILE_OPTIONS {shader_name}
+    {option}+
+  END
+```
+
+```groovy
+  # Set the polygon mode used for all drawing with the pipeline.
+  # |mode| is fill, line, or point and it defaults to fill.
+  POLYGON_MODE {mode}
+```
+
+```groovy
+  # Set the number of patch control points used by tessellation. The default value is 3.
+  PATCH_CONTROL_POINTS {control_points}
+```
+
+Ray tracing pipelines do not attach shaders directly like compute or graphics pipelines.
+Ray tracing pipelines organize shaders into shader groups in one of four ways
+depending on shader types used:
+
+```groovy
+  # Four possible shader group definitions
+  SHADER_GROUP {group_name_1} {ray_generation_shader_name}
+  SHADER_GROUP {group_name_2} {miss_shader_name}
+  SHADER_GROUP {group_name_3} {call_shader_name}
+  SHADER_GROUP {group_name_4} [closest_hit_shader_name] [any_hit_shader_name] [intersection_shader_name]
+```
+
+Shader group cannot be empty.
+Each group name must be unique within a pipeline. The same shader can be used within one or more
+shader groups. The shader group order is important, further commands as shader code might refer
+them directly. With the shader groups defined, they are then added into shader binding tables:
+
+```groovy
+  # Create shader binding tables and set shader groups into it
+  SHADER_BINDING_TABLE {sbt_name}
+    {group_name_1}
+    [ | {group_name_n}]
+  END
+```
+
+Generally a program needs three shader binding tables:
+ * ray generation shader binding table with one ray generation shader group
+ * miss shader binding table containing one or more miss shader groups
+ * hit shader binding table containing one or more hit shader groups
+
+Shader binding tables for call shaders are optional.
+
+Ray tracing pipelines support pipeline libraries. To declare a pipeline as a pipeline library
+the pipeline should declare itself a library by specifying `LIBRARY` in `FLAGS`:
+
+```groovy
+  # Declare this pipeline as a library
+  FLAGS LIBRARY
+```
+
+or multiline version:
+
+```groovy
+  # Declare this pipeline as a library
+  FLAGS
+    LIBRARY
+  END
+```
+
+Pipeline `FLAGS` can contain:
+
+ * `LIBRARY`
+
+Ray tracing pipeline can include one or more pipeline libraries:
+
+```groovy
+  # Specify list of libraries to use
+  USE_LIBRARY {library_name_1} [{library_name_2} [...]]
+```
+
+Ray tracing pipelines that declare and use pipeline libraries should declare
+the maximum ray payload size and the maximum ray hit attribute size:
+```groovy
+  # Define maximum ray payload size
+  MAX_RAY_PAYLOAD_SIZE <max_ray_payload_size>
+  # Define maximum ray hit attribute size
+  MAX_RAY_HIT_ATTRIBUTE_SIZE <max_ray_hit_attribute_size>
+```
+
+Default for both maximum ray payload size and maximum ray hit attribute size is zero.
+If there is a pipeline which uses a pipeline library then the `MAX_RAY_PAYLOAD_SIZE` and `MAX_RAY_HIT_ATTRIBUTE_SIZE`
+values must be the same between the pipeline and all the pipeline libraries used.
+
+Used libraries must precede shader group `SHADER_GROUP` and shader binding tables
+`SHADER_BINDING_TABLE` declarations. A pipeline can be a library and use other pipelines as a libraries.
+
+Ray tracing pipelines can declare a maximum ray recursion depth:
+
+```groovy
+  # Define maximum ray recursion depth
+  MAX_RAY_RECURSION_DEPTH <max_ray_recursion_depth>
+```
+
+If the MAX_RAY_RECURSION_DEPTH is not specified, then maximum ray recursion depth is set to 1.
+
+If a pipeline library is used within this pipeline (via `USE_LIBRARY` keyword), then the
+shader binding table can use shader groups from any of the used libraries.
+
+#### Compare operations
+ * `never`
+ * `less`
+ * `equal`
+ * `less_or_equal`
+ * `greater`
+ * `not_equal`
+ * `greater_or_equal`
+ * `always`
+
+```groovy
+  # Set depth test settings. All enable options are specified with keywords on and off.
+  # BOUNDS and BIAS values are specified with decimal numbers. |compare_op| is selected
+  # from the list of compare operations above.
+  DEPTH
+    TEST {test_enable}
+    WRITE {write_enable}
+    COMPARE_OP {compare_op}
+    CLAMP {clamp_enable}
+    BOUNDS min {bound_min} max {bounds_max}
+    BIAS constant {bias_constant} clamp {bias_clamp} slope {bias_slope}
+  END
+```
+
+#### Stencil operations
+ * `keep`
+ * `replace`
+ * `increment_and_clamp`
+ * `decrement_and_clamp`
+ * `invert`
+ * `increment_and_wrap`
+ * `decrement_and_wrap`
+
+```groovy
+  # Set stencil test settings. |face| can be front, back, or front_and_back.
+  # |test_enable| is either on or off and affects both faces. |fail_op|, |pass_op|,
+  # and |depth_fail_op| are selected from the stencil operations table above,
+  # and |compare_op| from the compare operations table. |compare_mask|, |write_mask|,
+  # and |reference| are 8bit unsigned integer values (range 0..255).
+  STENCIL {face}
+    TEST {test_enable}
+    FAIL_OP {fail_op}
+    PASS_OP {pass_op}
+    DEPTH_FAIL_OP {depth_fail_op}
+    COMPARE_OP {compare_op}
+    COMPARE_MASK {compare_mask}
+    WRITE_MASK {write_mask}
+    REFERENCE {reference}
+  END
+```
+
+#### Blend factors
+* `zero`
+* `one`
+* `src_color`
+* `one_minus_src_color`
+* `dst_color`
+* `one_minus_dst_color`
+* `src_alpha`
+* `one_minus_src_alpha`
+* `dst_alpha`
+* `one_minus_dst_alpha`
+* `constant_color`
+* `one_minus_constant_color`
+* `constant_alpha`
+* `one_minus_constant_alpha`
+* `src_alpha_saturate`
+* `src1_color`
+* `one_minus_src1_color`
+* `src1_alpha`
+* `one_minus_src1_alpha`
+
+#### Blend operations
+* `add`
+* `substract`
+* `reverse_substract`
+* `min`
+* `max`
+
+The following operations also require VK_EXT_blend_operation_advanced
+when using a Vulkan backend.
+* `zero`
+* `src`
+* `dst`
+* `src_over`
+* `dst_over`
+* `src_in`
+* `dst_in`
+* `src_out`
+* `dst_out`
+* `src_atop`
+* `dst_atop`
+* `xor`
+* `multiply`
+* `screen`
+* `overlay`
+* `darken`
+* `lighten`
+* `color_dodge`
+* `color_burn`
+* `hard_light`
+* `soft_light`
+* `difference`
+* `exclusion`
+* `invert`
+* `invert_rgb`
+* `linear_dodge`
+* `linear_burn`
+* `vivid_light`
+* `linear_light`
+* `pin_light`
+* `hard_mix`
+* `hsl_hue`
+* `hsl_saturation`
+* `hsl_color`
+* `hsl_luminosity`
+* `plus`
+* `plus_clamped`
+* `plus_clamped_alpha`
+* `plus_darker`
+* `minus`
+* `minus_clamped`
+* `contrast`
+* `invert_org`
+* `red`
+* `green`
+* `blue`
+
+```groovy
+  # Enable alpha blending and set blend factors and operations. Available
+  # blend factors and operations are listed above.
+  BLEND
+    SRC_COLOR_FACTOR {src_color_factor}
+    DST_COLOR_FACTOR {dst_color_factor}
+    COLOR_OP {color_op}
+    SRC_ALPHA_FACTOR {src_alpha_factor}
+    DST_ALPHA_FACTOR {dst_alpha_factor}
+    ALPHA_OP {alpha_op}
+  END
+```
+
+```groovy
   # Set the size of the render buffers. |width| and |height| are integers and
   # default to 250x250.
   FRAMEBUFFER_SIZE _width_ _height_
+```
+
+```groovy
+  # Set the viewport size. If no viewport is provided then it defaults to the
+  # whole framebuffer size. Depth range defaults to 0 to 1.
+  VIEWPORT {x} {y} SIZE {width} {height} [MIN_DEPTH {mind}] [MAX_DEPTH {maxd}]
+```
+
+```groovy
+  # Set subgroup size control setting. Require that subgroups must be launched
+  # with all invocations active for given shader. Allow SubgroupSize to vary
+  # for given shader. Require a specific SubgroupSize the for given shader.
+  # |fully_populated_enable| and |varying_size_enable| can be on or off.
+  # |subgroup_size| can be set one of the values below:
+  #  - a power-of-two integer that _must_ be greater or equal to minSubgroupSize
+  #    and be less than or equal to maxSubgroupSize
+  # - MIN to set the required subgroup size to the minSubgroupSize
+  # - MAX to set the required subgroup size to the maxSubgroupSize
+  SUBGROUP {name_of_shader}
+    FULLY_POPULATED {fully_populated_enable}
+    VARYING_SIZE {varying_size_enable}
+    REQUIRED_SIZE {subgroup_size}
+  END
 ```
 
 ### Pipeline Buffers
@@ -224,18 +828,23 @@ The following commands are all specified within the `PIPELINE` command.
 #### Buffer Types
  * `uniform`
  * `storage`
+ * `uniform_dynamic`
+ * `storage_dynamic`
+ * `uniform_texel_buffer`
+ * `storage_texel_buffer`
 
 TODO(dsinclair): Sync the BufferTypes with the list of Vulkan Descriptor types.
 
-A `pipeline` can have buffers bound. This includes buffers to contain image
-attachment content, depth/stencil content, uniform buffers, etc.
+A `pipeline` can have buffers or samplers bound. This includes buffers to
+contain image attachment content, depth/stencil content, uniform buffers, etc.
 
 ```groovy
   # Attach |buffer_name| as an output color attachment at location |idx|.
   # The provided buffer must be a `FORMAT` buffer. If no color attachments are
   # provided a single attachment with format `B8G8R8A8_UNORM` will be created
-  # for graphics pipelines.
-  BIND BUFFER {buffer_name} AS color LOCATION _idx_
+  # for graphics pipelines. The MIP level will have a base of |level|.
+  BIND BUFFER {buffer_name} AS color LOCATION _idx_ \
+      [ BASE_MIP_LEVEL _level_ (default 0) ]
 
   # Attach |buffer_name| as the depth/stencil buffer. The provided buffer must
   # be a `FORMAT` buffer. If no depth/stencil buffer is specified a default
@@ -243,39 +852,128 @@ attachment content, depth/stencil content, uniform buffers, etc.
   # pipelines.
   BIND BUFFER {buffer_name} AS depth_stencil
 
+  # Attach |buffer_name| as a multisample resolve target. The order of resolve
+  # target images match with the order of color attachments that have more than
+  # one sample.
+  BIND BUFFER {buffer_name} AS resolve
+
   # Attach |buffer_name| as the push_constant buffer. There can be only one
   # push constant buffer attached to a pipeline.
-  BIND BUFFER <buffer_name> AS push_constant
+  BIND BUFFER {buffer_name} AS push_constant
 
+  # Bind OpenCL argument buffer by name. Specifying the buffer type is optional.
+  # Amber will set the type as appropriate for the argument buffer. All uses
+  # of the buffer must have a consistent |buffer_type| across all pipelines.
+  BIND BUFFER {buffer_name} [ AS {buffer_type} (default computed)] \
+      KERNEL ARG_NAME _name_
+
+  # Bind OpenCL argument buffer by argument ordinal. Arguments use 0-based
+  # numbering. Specifying the buffer type is optional. Amber will set the
+  # type as appropriate for the argument buffer. All uses of the buffer
+  # must have a consistent |buffer_type| across all pipelines.
+  BIND BUFFER {buffer_name} [ AS {buffer_type} (default computed)] \
+      KERNEL ARG_NUMBER _number_
+
+  # Bind OpenCL argument sampler by argument name.
+  BIND SAMPLER {sampler_name} KERNEL ARG_NAME _name_
+
+  # Bind OpenCL argument sampler by argument ordinal. Arguments use 0-based
+  # numbering.
+  BIND SAMPLER {sampler_name} KERNEL ARG_NUMBER _number_
+```
+
+All BIND BUFFER and BIND SAMPLER commands below define a descriptor set and binding ID.
+These commands can be replaced with BIND BUFFER_ARRAY and BIND SAMPLER_ARRAY commands.
+In these cases multiple buffer or sampler names need to be provided, separated by spaces.
+This creates a descriptor array of buffers or samplers bound to the same descriptor set
+and binding ID. An array of dynamic offsets should be provided via `OFFSET offset1 offset2 ...`
+when using dynamic buffers with BUFFER_ARRAY. Optional descriptor binding offset(s) and range(s)
+can be defined via `DESCRIPTOR_OFFSET offset1 offset2 ...` and 
+`DESCRIPTOR_RANGE range1 range2 ...` when using uniform or storage buffers. Offsets and 
+ranges can be used also with dynamic buffers.
+```groovy
   # Bind the buffer of the given |buffer_type| at the given descriptor set
-  # and binding. The buffer will use a start index of 0.
-  BIND BUFFER {buffer_name} AS {buffer_type} DESCRIPTOR_SET _id_ \
-       BINDING _id_
+  # and binding. The buffer will use a byte offset |descriptor_offset| 
+  # with range |range|.
+  BIND {BUFFER | BUFFER_ARRAY} {buffer_name} AS {buffer_type} DESCRIPTOR_SET _id_ \
+       BINDING _id_ [ DESCRIPTOR_OFFSET _descriptor_offset_ (default 0) ] \ 
+       [ DESCRIPTOR_RANGE _range_ (default -1 == VK_WHOLE_SIZE) ]
+
+  # Attach |buffer_name| as a storage image. The MIP level will have a base
+  # value of |level|.
+  BIND {BUFFER | BUFFER_ARRAY} {buffer_name} AS storage_image \
+      DESCRIPTOR_SET _id_ BINDING _id_ [ BASE_MIP_LEVEL _level_ (default 0) ]
+
+  # Attach |buffer_name| as a sampled image.  The MIP level will have a base
+  # value of |level|.
+  BIND {BUFFER | BUFFER_ARRAY} {buffer_name} AS sampled_image \
+      DESCRIPTOR_SET _id_ BINDING _id_ [ BASE_MIP_LEVEL _level_ (default 0) ]
+
+  # Attach |buffer_name| as a combined image sampler. A sampler |sampler_name|
+  # must also be specified. The MIP level will have a base value of 0.
+  BIND {BUFFER | BUFFER_ARRAY} {buffer_name} AS combined_image_sampler SAMPLER {sampler_name} \
+      DESCRIPTOR_SET _id_ BINDING _id_ [ BASE_MIP_LEVEL _level_ (default 0) ]
 
   # Bind the sampler at the given descriptor set and binding.
-  BIND SAMPLER {sampler_name} DESCRIPTOR_SET _id_ BINDING _id_
+  BIND {SAMPLER | SAMPLER_ARRAY} {sampler_name} DESCRIPTOR_SET _id_ BINDING _id_
+
+  # Bind |buffer_name| as dynamic uniform/storage buffer at the given descriptor set
+  # and binding. The buffer will use a byte offset |offset| + |descriptor_offset|
+  # with range |range|.
+  BIND {BUFFER | BUFFER_ARRAY} {buffer_name} AS {uniform_dynamic | storage_dynamic} \
+       DESCRIPTOR_SET _id_ BINDING _id_ OFFSET _offset_ \
+       [ DESCRIPTOR_OFFSET _descriptor_offset_ (default 0) ] \ 
+       [ DESCRIPTOR_RANGE _range_ (default -1 == VK_WHOLE_SIZE) ]
 ```
 
 ```groovy
-  # Set |buffer_name| as the vertex data at location |val|.
-  VERTEX_DATA {buffer_name} LOCATION _val_
+  # Set |buffer_name| as the vertex data at location |val|. RATE defines the
+  # input rate for vertex attribute reading. OFFSET sets the byte offset for the
+  # vertex data within the buffer |buffer_name|, which by default is 0. FORMAT
+  # sets the vertex buffer format, which by default is the format of the buffer
+  # |buffer_name|. STRIDE sets the byte stride, which by default is the stride
+  # of the format (set explicitly via FORMAT or from the format of the buffer
+  # |buffer_name|).
+  VERTEX_DATA {buffer_name} LOCATION _val_ [ RATE { vertex | instance } (default vertex) ] \
+        [ FORMAT {format} ] [ OFFSET {offset} ] [ STRIDE {stride} ]
 
   # Set |buffer_name| as the index data to use for `INDEXED` draw commands.
   INDEX_DATA {buffer_name}
 ```
 
-##### Topologies
- * `point_list`
- * `line_list`
- * `line_list_with_adjacency`
- * `line_strip`
- * `line_strip_with_adjacency`
- * `triangle_list`
- * `triangle_list_with_adjacency`
- * `triangle_strip`
- * `triangle_strip_with_adjacency`
- * `triangle_fan`
- * `patch_list`
+Ray tracing pipelines allow bind top level acceleration structures.
+
+```groovy
+  # Bind the top level acceleration structure at the given descriptor set and binding.
+  BIND ACCELERATION_STRUCTURE {tlas_name} DESCRIPTOR_SET _set_id_ BINDING _id_
+```
+
+#### OpenCL Plain-Old-Data Arguments
+OpenCL kernels can have plain-old-data (pod or pod_ubo in the desriptor map)
+arguments set their data via this command. Amber will generate the appropriate
+buffers for the pipeline populated with the specified data.
+
+```groovy
+  # Set argument |name| to |data_type| with value |val|.
+  SET KERNEL ARG_NAME _name_ AS {data_type} _val_
+
+  # Set argument |number| to |data_type| with value |val|.
+  # Arguments use 0-based numbering.
+  SET KERNEL ARG_NUMBER _number_ AS {data_type} _val_
+```
+
+#### Topologies
+ * `POINT_LIST`
+ * `LINE_LIST`
+ * `LINE_LIST_WITH_ADJACENCY`
+ * `LINE_STRIP`
+ * `LINE_STRIP_WITH_ADJACENCY`
+ * `TRIANGLE_LIST`
+ * `TRIANGLE_LIST_WITH_ADJACENCY`
+ * `TRIANGLE_STRIP`
+ * `TRIANGLE_STRIP_WITH_ADJACENCY`
+ * `TRIANGLE_fan`
+ * `PATCH_LIST`
 
 ### Run a pipeline.
 
@@ -288,59 +986,88 @@ To run an indexed draw, attach the index data to the `PIPELINE` with an
 For the commands which take a `START_IDX` and a `COUNT` they can be left off the
 command (although, `START_IDX` is required if `COUNT` is provided). The default
 value for `START_IDX` is 0. The default value for `COUNT` is the item count of
-vertex buffer minus the `START_IDX`.
+vertex buffer minus the `START_IDX`. The same applies to `START_INSTANCE`
+(default 0) and `INSTANCE_COUNT` (default 1).
+
+The `TIMED_EXECUTION` is an optional flag that can be passed to the run command.
+This will cause Amber to insert device specific counters to time the execution
+of this pipeline command.
 
 ```groovy
 # Run the given |pipeline_name| which must be a `compute` pipeline. The
 # pipeline will be run with the given number of workgroups in the |x|, |y|, |z|
 # dimensions. Each of the x, y and z values must be a uint32.
-RUN {pipeline_name} _x_ _y_ _z_
+RUN [TIMED_EXECUTION] {pipeline_name} _x_ _y_ _z_
+```
 
+```groovy
 # Run the given |pipeline_name| which must be a `graphics` pipeline. The
-# rectangle at |x|, |y|, |width|x|height| will be rendered.
-RUN {pipeline_name} \
+# rectangle at |x|, |y|, |width|x|height| will be rendered. Ignores VERTEX_DATA
+# and INDEX_DATA on the given pipeline.
+RUN [TIMED_EXECUTION] {pipeline_name} \
   DRAW_RECT POS _x_in_pixels_ _y_in_pixels_ \
   SIZE _width_in_pixels_ _height_in_pixels_
 ```
 
 ```groovy
-# Run the |pipeline_name| which must be a `graphics` pipeline. The vertex
-# data must be attached to the pipeline. A start index of 0 will be used
-# and a count of the number of elements in the vertex buffer.
-RUN {pipeline_name} DRAW_ARRAY AS {topology}
+# Run the given |pipeline_name| which must be a `graphics` pipeline. The
+# grid at |x|, |y|, |width|x|height|, |columns|x|rows| will be rendered.
+# Ignores VERTEX_DATA and INDEX_DATA on the given pipeline.
+# For columns, rows of (5, 4) a total of 5*4=20 rectangles will be drawn.
+RUN [TIMED_EXECUTION] {pipeline_name} \
+  DRAW_GRID POS _x_in_pixels_ _y_in_pixels_ \
+  SIZE _width_in_pixels_ _height_in_pixels_ \
+  CELLS _columns_of_cells_ _rows_of_cells_
+```
 
+```groovy
 # Run the |pipeline_name| which must be a `graphics` pipeline. The vertex
-# data must be attached to the pipeline. A start index of |value| will be used
-# and a count of the number of items from |value| to the end of the vertex
-# buffer.
-RUN {pipeline_name} DRAW_ARRAY AS {topology} START_IDX _value_
+# data must be attached to the pipeline.
 
-# Run the |pipeline_name| which must be a `graphics` pipeline. The vertex
-# data must be attached to the pipeline. A start index of |value| will be used
-# and a count |count_value| will be used.
-RUN {pipeline_name} DRAW_ARRAY AS {topology} START_IDX _value_ \
-  COUNT _count_value_
+# A start index of |value| will be used and the count of |count_value| items
+# will be processed. The draw is instanced if |inst_count_value| is greater
+# than one. In case of instanced draw |inst_value| controls the starting
+# instance ID.
+RUN [TIMED_EXECUTION] {pipeline_name} DRAW_ARRAY AS {topology} \
+    [ START_IDX _value_ (default 0) ] \
+    [ COUNT _count_value_ (default vertex_buffer size - start_idx) ] \
+    [ START_INSTANCE _inst_value_ (default 0) ] \
+    [ INSTANCE_COUNT _inst_count_value_ (default 1) ]
 ```
 
 ```groovy
 # Run the |pipeline_name| which must be a `graphics` pipeline. The vertex
 # data and  index data must be attached to the pipeline. The vertices will be
-# drawn using the given |topology|. A start index of 0 will be used and the
-# count will be determined by the size of the index data buffer.
-RUN {pipeline_name} DRAW_ARRAY AS {topology} INDEXED
+# drawn using the given |topology|.
+#
+# A start index of |value| will be used and the count of |count_value| items
+# will be processed. The draw is instanced if |inst_count_value| is greater
+# than one. In case of instanced draw |inst_value| controls the starting
+# instance ID.
+RUN [TIMED_EXECUTION] {pipeline_name} DRAW_ARRAY AS {topology} INDEXED \
+    [ START_IDX _value_ (default 0) ] \
+    [ COUNT _count_value_ (default index_buffer size - start_idx) ] \
+    [ START_INSTANCE _inst_value_ (default 0) ] \
+    [ INSTANCE_COUNT _inst_count_value_ (default 1) ]
+```
 
-# Run the |pipeline_name| which must be a `graphics` pipeline. The vertex
-# data and  index data must be attached to the pipeline. The vertices will be
-# drawn using the given |topology|. A start index of |value| will be used and
-# the count will be determined by the size of the index data buffer.
-RUN {pipeline_name} DRAW_ARRAY AS {topology} INDEXED START_IDX _value_
-
-# Run the |pipeline_name| which must be a `graphics` pipeline. The vertex
-# data and  index data must be attached to the pipeline. The vertices will be
-# drawn using the given |topology|. A start index of |value| will be used and
-# the count of |count_value| items will be processed.
-RUN {pipeline_name} DRAW_ARRAY AS {topology} INDEXED \
-  START_IDX _value_ COUNT _count_value_
+```groovy
+# Run the |pipeline_name| which must be a `ray tracing` pipeline.
+# Next four shader binding table names should be specified:
+# * RAYGEN |ray_gen_sbt_name| - shader binding table containing ray generation shader group
+# * MISS |miss_sbt_name| - shader binding table containing one or more miss shader groups
+# * HIT |hit_sbt_name| - shader binding table containing one or more hit shader groups
+# * CALL |call_sbt_name| - shader binding table containing one or more call shader groups
+# RAYGEN is required, other shader binding tables (MISS, HIT and CALL) are optional.
+#
+# The pipeline will be run with the given ray tracing dimensions |x|, |y|, |z|.
+# Each of the x, y and z values must be a uint32.
+RUN [TIMED_EXECUTION] {pipeline_name} \
+    RAYGEN {ray_gen_sbt_name} \
+    [MISS {miss_sbt_name}] \
+    [HIT {hit_sbt_name}] \
+    [CALL {call_sbt_name}] \
+     _x_ _y_ _z_
 ```
 
 ### Repeating commands
@@ -356,6 +1083,8 @@ END
 The commands which can be used inside a `REPEAT` block are:
   * `CLEAR`
   * `CLEAR_COLOR`
+  * `CLEAR_DEPTH`
+  * `CLEAR_STENCIL`
   * `COPY`
   * `EXPECT`
   * `RUN`
@@ -363,11 +1092,19 @@ The commands which can be used inside a `REPEAT` block are:
 ### Commands
 
 ```groovy
-# Sets the clear color to use for |pipeline| which must be a `graphics`
-# pipeline. The colors are integers from 0 - 255.
+# Sets the clear color to use for |pipeline| which must be a graphics
+# pipeline. The colors are integers from 0 - 255.  Defaults to (0, 0, 0, 0)
 CLEAR_COLOR {pipeline} _r (0 - 255)_ _g (0 - 255)_ _b (0 - 255)_ _a (0 - 255)_
 
-# Instructs the |pipeline| which must be a `graphics` pipeline to execute the
+# Sets the depth clear value to use for |pipeline| which must be a graphics
+# pipeline. |value| must be a decimal number.
+CLEAR_DEPTH {pipeline} _value_
+
+# Sets the stencil clear value to use for |pipeline| which must be a graphics
+# pipeline. |value| must be an integer from 0 - 255.
+CLEAR_STENCIL {pipeline} _value_
+
+# Instructs the |pipeline| which must be a graphics pipeline to execute the
 # clear command.
 CLEAR {pipeline}
 ```
@@ -384,6 +1121,8 @@ CLEAR {pipeline}
  * `EQ_RGB`
  * `EQ_RGBA`
  * `EQ_BUFFER`
+ * `RMSE_BUFFER`
+ * `EQ_HISTOGRAM_EMD_BUFFER`
 
 ```groovy
 # Checks that |buffer_name| at |x| has the given |value|s when compared
@@ -412,11 +1151,22 @@ EXPECT {buffer_name} IDX _x_in_pixels_ _y_in_pixels_ \
 
 # Checks that |buffer_1| contents are equal to those of |buffer_2|
 EXPECT {buffer_1} EQ_BUFFER {buffer_2}
+
+# Checks that the Root Mean Square Error when comparing |buffer_1| to
+# |buffer_2| is less than or equal to |tolerance|. Note, |tolerance| is a
+# unit-less number.
+EXPECT {buffer_1} RMSE_BUFFER {buffer_2} TOLERANCE _value_
+
+# Checks that the Earth Mover's Distance when comparing histograms of
+# |buffer_1| to |buffer_2| is less than or equal to |tolerance|.
+# Note, |tolerance| is a unit-less number.
+EXPECT {buffer_1} EQ_HISTOGRAM_EMD_BUFFER {buffer_2} TOLERANCE _value_
 ```
 
 ## Examples
 
 ### Compute Shader
+
 ```groovy
 #!amber
 # Simple amber compute shader.
@@ -454,6 +1204,7 @@ EXPECT kComputeBuffer IDX 263168 EQ 128 128
 ```
 
 ### Entry Points
+
 ```groovy
 #!amber
 
@@ -504,9 +1255,9 @@ BUFFER kImgBuffer FORMAT R8G8B8A8_UINT
 PIPELINE graphics kRedPipeline
   ATTACH kVertexShader ENTRY_POINT main
   SHADER_OPTIMIZATION kVertexShader
-    eliminate-dead-branches
-    merge-return
-    eliminate-dead-code-aggressive
+    --eliminate-dead-branches
+    --merge-return
+    --eliminate-dead-code-aggressive
   END
   ATTACH kFragmentShader ENTRY_POINT red
 
@@ -530,6 +1281,7 @@ EXPECT kImgBuffer IDX 128 128 SIZE 128 128 EQ_RGB 0 255 0
 ```
 
 ### Buffers
+
 ```groovy
 #!amber
 
@@ -625,7 +1377,38 @@ END  # pipeline
 CLEAR_COLOR kGraphicsPipeline 255 0 0 255
 CLEAR kGraphicsPipeline
 
-RUN kGraphicsPipeline DRAW_ARRAY AS triangle_list START_IDX 0 COUNT 24
+RUN kGraphicsPipeline DRAW_ARRAY AS TRIANGLE_LIST START_IDX 0 COUNT 24
+```
+
+### OpenCL-C Shaders
+
+```groovy
+SHADER compute my_shader OPENCL-C
+kernel void line(const int* in, global int* out, int m, int b) {
+  *out = *in * m + b;
+}
+END
+
+BUFFER in_buf DATA_TYPE int32 DATA 4 END
+BUFFER out_buf DATA_TYPE int32 DATA 0 END
+
+PIPELINE compute my_pipeline
+  ATTACH my_shader ENTRY_POINT line
+  COMPILE_OPTIONS
+    -cluster-pod-kernel-args
+    -pod-ubo
+    -constant-args-ubo
+    -max-ubo-size=128
+  END
+  BIND BUFFER in_buf KERNEL ARG_NAME in
+  BIND BUFFER out_buf KERNEL ARG_NAME out
+  SET KERNEL ARG_NAME m AS int32 3
+  SET KERNEL ARG_NAME b AS int32 1
+END
+
+RUN my_pipeline 1 1 1
+
+EXPECT out_buf EQ IDX 0 EQ 13
 ```
 
 ### Image Formats

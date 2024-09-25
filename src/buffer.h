@@ -21,12 +21,15 @@
 #include <utility>
 #include <vector>
 
+#include "amber/amber.h"
 #include "amber/result.h"
 #include "amber/value.h"
-#include "src/datum_type.h"
 #include "src/format.h"
+#include "src/image.h"
 
 namespace amber {
+
+class Sampler;
 
 /// Types of buffers which can be created.
 enum class BufferType : int8_t {
@@ -35,19 +38,38 @@ enum class BufferType : int8_t {
   /// A color buffer.
   kColor = 0,
   /// A depth/stencil buffer.
-  kDepth,
+  kDepthStencil,
   /// An index buffer.
   kIndex,
-  /// A sampled buffer.
-  kSampled,
+  /// A sampled image.
+  kSampledImage,
+  /// A combined image sampler.
+  kCombinedImageSampler,
   /// A storage buffer.
   kStorage,
+  /// A dynamic storage buffer.
+  kStorageDynamic,
   /// A uniform buffer.
   kUniform,
+  /// A dynamic uniform buffer.
+  kUniformDynamic,
   /// A push constant buffer.
   kPushConstant,
   /// A vertex buffer.
-  kVertex
+  kVertex,
+  /// A storage image.
+  kStorageImage,
+  /// A uniform texel buffer.
+  kUniformTexelBuffer,
+  /// A storage texel buffer.
+  kStorageTexelBuffer,
+  /// A resolve target.
+  kResolve
+};
+
+enum class InputRate : int8_t {
+  kVertex = 0,
+  kInstance,
 };
 
 /// A buffer stores data. The buffer maybe provided from the input script, or
@@ -56,23 +78,21 @@ class Buffer {
  public:
   /// Create a buffer of unknown type.
   Buffer();
-  /// Create a buffer of |type_|.
-  explicit Buffer(BufferType type);
 
   ~Buffer();
 
-  /// Returns the BufferType of this buffer.
-  BufferType GetBufferType() const { return buffer_type_; }
-  /// Sets the BufferType for this buffer.
-  void SetBufferType(BufferType type) { buffer_type_ = type; }
-
   /// Sets the Format of the buffer to |format|.
-  void SetFormat(std::unique_ptr<Format> format) {
+  void SetFormat(Format* format) {
     format_is_default_ = false;
-    format_ = std::move(format);
+    format_ = format;
   }
   /// Returns the Format describing the buffer data.
-  Format* GetFormat() const { return format_.get(); }
+  Format* GetFormat() const { return format_; }
+
+  /// Sets the sampler used with buffer of combined image sampler type.
+  void SetSampler(Sampler* sampler) { sampler_ = sampler; }
+  /// Returns the sampler of combined image sampler buffer.
+  Sampler* GetSampler() const { return sampler_; }
 
   void SetFormatIsDefault(bool val) { format_is_default_ = val; }
   bool FormatIsDefault() const { return format_is_default_; }
@@ -90,12 +110,21 @@ class Buffer {
   uint32_t GetHeight() const { return height_; }
   /// Set the number of elements high for the buffer.
   void SetHeight(uint32_t height) { height_ = height; }
+  /// Get the number of elements this buffer is deep.
+  uint32_t GetDepth() const { return depth_; }
+  /// Set the number of elements this buffer is deep.
+  void SetDepth(uint32_t depth) { depth_ = depth; }
+
+  /// Get the image dimensionality.
+  ImageDimension GetImageDimension() const { return image_dim_; }
+  /// Set the image dimensionality.
+  void SetImageDimension(ImageDimension dim) { image_dim_ = dim; }
 
   // | ---------- Element ---------- | ElementCount == 1
   // | Value | Value | Value | Value |   ValueCount == 4
   // | | | | | | | | | | | | | | | | |  SizeInBytes == 16
   // Note, the SizeInBytes maybe be greater then the size of the values. If
-  // the format IsStd140() and there are 3 rows, the SizeInBytes will be
+  // the format is std140 and there are 3 rows, the SizeInBytes will be
   // inflated to 4 values per row, instead of 3.
 
   /// Sets the number of elements in the buffer.
@@ -109,7 +138,7 @@ class Buffer {
       element_count_ = 0;
       return;
     }
-    if (format_->GetPackSize() > 0) {
+    if (format_->IsPacked()) {
       element_count_ = count;
     } else {
       // This divides by the needed input values, not the values per element.
@@ -124,9 +153,9 @@ class Buffer {
     if (!format_)
       return 0;
     // Packed formats are single values.
-    if (format_->GetPackSize() > 0)
+    if (format_->IsPacked())
       return element_count_;
-    return element_count_ * format_->ValuesPerElement();
+    return element_count_ * format_->InputNeededPerElement();
   }
 
   /// Returns the number of bytes needed for the data in the buffer.
@@ -137,10 +166,10 @@ class Buffer {
   }
 
   /// Returns the number of bytes for one element in the buffer.
-  uint32_t GetTexelStride() { return format_->SizeInBytes(); }
+  uint32_t GetElementStride() { return format_->SizeInBytes(); }
 
   /// Returns the number of bytes for one row of elements in the buffer.
-  uint32_t GetRowStride() { return GetTexelStride() * GetWidth(); }
+  uint32_t GetRowStride() { return GetElementStride() * GetWidth(); }
 
   /// Sets the data into the buffer.
   Result SetData(const std::vector<Value>& data);
@@ -148,14 +177,46 @@ class Buffer {
   /// Resizes the buffer to hold |element_count| elements. This is separate
   /// from SetElementCount() because we may not know the format when we set the
   /// initial count. This requires the format to have been set.
-  void ResizeTo(uint32_t element_count);
+  void SetSizeInElements(uint32_t element_count);
+
+  /// Resizes the buffer to hold |size_in_bytes|/format_->SizeInBytes()
+  /// number of elements while resizing the buffer to |size_in_bytes| bytes.
+  /// This requires the format to have been set. This is separate from
+  /// SetSizeInElements() since the given argument here is |size_in_bytes|
+  /// bytes vs |element_count| elements
+  void SetSizeInBytes(uint32_t size_in_bytes);
+
+  /// Sets the max_size_in_bytes_ to |max_size_in_bytes| bytes
+  void SetMaxSizeInBytes(uint32_t max_size_in_bytes);
+  /// Returns max_size_in_bytes_ if it is not zero. Otherwise it means this
+  /// buffer is an amber buffer which has a fix size and returns
+  /// GetSizeInBytes()
+  uint32_t GetMaxSizeInBytes() const;
 
   /// Write |data| into the buffer |offset| bytes from the start. Write
   /// |size_in_bytes| of data.
   Result SetDataWithOffset(const std::vector<Value>& data, uint32_t offset);
 
+  /// At each ubo, ssbo size and ssbo subdata size calls, recalculates
+  /// max_size_in_bytes_ and updates it if underlying buffer got bigger
+  Result RecalculateMaxSizeInBytes(const std::vector<Value>& data,
+                                   uint32_t offset);
+
   /// Writes |src| data into buffer at |offset|.
   Result SetDataFromBuffer(const Buffer* src, uint32_t offset);
+
+  /// Sets the number of mip levels for a buffer used as a color buffer
+  /// or a texture.
+  void SetMipLevels(uint32_t mip_levels) { mip_levels_ = mip_levels; }
+
+  /// Returns the number of mip levels.
+  uint32_t GetMipLevels() const { return mip_levels_; }
+
+  /// Sets the number of samples.
+  void SetSamples(uint32_t samples) { samples_ = samples; }
+
+  /// Returns the number of samples.
+  uint32_t GetSamples() const { return samples_; }
 
   /// Returns a pointer to the internal storage of the buffer.
   std::vector<uint8_t>* ValuePtr() { return &bytes_; }
@@ -174,19 +235,46 @@ class Buffer {
   /// Succeeds only if both buffer contents are equal
   Result IsEqual(Buffer* buffer) const;
 
+  /// Returns a histogram
+  std::vector<uint64_t> GetHistogramForChannel(uint32_t channel,
+                                               uint32_t num_bins) const;
+
+  /// Checks if buffers are compatible for comparison
+  Result CheckCompability(Buffer* buffer) const;
+
+  /// Compare the RMSE of this buffer against |buffer|. The RMSE must be
+  /// less than |tolerance|.
+  Result CompareRMSE(Buffer* buffer, float tolerance) const;
+
+  /// Compare the histogram EMD of this buffer against |buffer|. The EMD must be
+  /// less than |tolerance|.
+  Result CompareHistogramEMD(Buffer* buffer, float tolerance) const;
+
  private:
   uint32_t WriteValueFromComponent(const Value& value,
-                                   const Format::Component& comp,
+                                   FormatMode mode,
+                                   uint32_t num_bits,
                                    uint8_t* ptr);
 
-  BufferType buffer_type_ = BufferType::kUnknown;
+  // Calculates the difference between the value stored in this buffer and
+  // those stored in |buffer| and returns all the values.
+  std::vector<double> CalculateDiffs(const Buffer* buffer) const;
+
   std::string name_;
+  /// max_size_in_bytes_ is the total size in bytes needed to hold the buffer
+  /// over all ubo, ssbo size and ssbo subdata size calls.
+  uint32_t max_size_in_bytes_ = 0;
   uint32_t element_count_ = 0;
-  uint32_t width_ = 0;
-  uint32_t height_ = 0;
+  uint32_t width_ = 1;
+  uint32_t height_ = 1;
+  uint32_t depth_ = 1;
+  uint32_t mip_levels_ = 1;
+  uint32_t samples_ = 1;
   bool format_is_default_ = false;
   std::vector<uint8_t> bytes_;
-  std::unique_ptr<Format> format_;
+  Format* format_ = nullptr;
+  Sampler* sampler_ = nullptr;
+  ImageDimension image_dim_ = ImageDimension::kUnknown;
 };
 
 }  // namespace amber

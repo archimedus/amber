@@ -22,8 +22,16 @@ namespace amber {
 #elif defined(__linux__)
 #define AMBER_PLATFORM_LINUX 1
 #define AMBER_PLATFORM_POSIX 1
+#elif defined(__FreeBSD__)
+#define AMBER_PLATFORM_FREEBSD 1
+#define AMBER_PLATFORM_POSIX 1
 #elif defined(__APPLE__)
 #define AMBER_PLATFORM_APPLE 1
+#define AMBER_PLATFORM_POSIX 1
+#elif defined(__Fuchsia__)
+#define AMBER_PLATFORM_POSIX 1
+#elif defined(__QNX__)
+#define AMBER_PLATFORM_QNX 1
 #define AMBER_PLATFORM_POSIX 1
 #else
 #error "Unknown platform."
@@ -37,12 +45,20 @@ namespace amber {
 #define AMBER_PLATFORM_LINUX 0
 #endif
 
+#if !defined(AMBER_PLATFORM_FREEBSD)
+#define AMBER_PLATFORM_FREEBSD 0
+#endif
+
 #if !defined(AMBER_PLATFORM_APPLE)
 #define AMBER_PLATFORM_APPLE 0
 #endif
 
 #if !defined(AMBER_PLATFORM_POSIX)
 #define AMBER_PLATFORM_POSIX 0
+#endif
+
+#if !defined(AMBER_PLATFORM_QNX)
+#define AMBER_PLATFORM_QNX 0
 #endif
 
 }  // namespace amber

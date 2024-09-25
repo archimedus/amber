@@ -85,7 +85,7 @@ TEST_P(AmberScriptParserShaderPassThroughTest, ShaderPassThroughWithoutVertex) {
       "allowed",
       r.Error());
 }
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     AmberScriptParserShaderPassThroughTests,
     AmberScriptParserShaderPassThroughTest,
     testing::Values(NameData{"fragment"},
@@ -93,7 +93,7 @@ INSTANTIATE_TEST_CASE_P(
                     NameData{"tessellation_evaluation"},
                     NameData{"tessellation_control"},
                     NameData{"compute"},
-                    NameData{"multi"}), );  // NOLINT(whitespace/parens)
+                    NameData{"multi"}));  // NOLINT(whitespace/parens)
 
 TEST_F(AmberScriptParserTest, ShaderPassThroughUnknownShaderType) {
   std::string in = "SHADER UNKNOWN my_shader PASSTHROUGH";
@@ -119,7 +119,7 @@ TEST_F(AmberScriptParserTest, ShaderPassThroughExtraParameters) {
   Parser parser;
   Result r = parser.Parse(in);
   ASSERT_FALSE(r.IsSuccess());
-  EXPECT_EQ("1: extra parameters after SHADER PASSTHROUGH", r.Error());
+  EXPECT_EQ("1: extra parameters after SHADER PASSTHROUGH: INVALID", r.Error());
 }
 
 TEST_F(AmberScriptParserTest, Shader) {
@@ -232,7 +232,104 @@ END)";
   Parser parser;
   Result r = parser.Parse(in);
   ASSERT_FALSE(r.IsSuccess());
-  EXPECT_EQ("2: extra parameters after SHADER command", r.Error());
+  EXPECT_EQ("2: extra parameters after SHADER command: INVALID", r.Error());
+}
+
+TEST_F(AmberScriptParserTest, ShaderTargetEnv) {
+  std::string in = R"(#!amber
+SHADER geometry shader_name GLSL TARGET_ENV spv1.4
+void main() {
+  gl_FragColor = vec3(2, 3, 4);
+}
+END)";
+
+  Parser parser;
+  Result r = parser.Parse(in);
+
+  ASSERT_TRUE(r.IsSuccess()) << r.Error();
+
+  auto script = parser.GetScript();
+  const auto& shaders = script->GetShaders();
+  ASSERT_EQ(1U, shaders.size());
+
+  const auto* shader = shaders[0].get();
+  EXPECT_EQ("spv1.4", shader->GetTargetEnv());
+}
+
+TEST_F(AmberScriptParserTest, ShaderTargetEnvMissingEnv) {
+  std::string in = R"(#!amber
+SHADER geometry shader_name GLSL TARGET_ENV
+void main() {
+  gl_FragColor = vec3(2, 3, 4);
+}
+END)";
+
+  Parser parser;
+  Result r = parser.Parse(in);
+  ASSERT_FALSE(r.IsSuccess());
+  EXPECT_EQ("3: expected target environment after TARGET_ENV", r.Error());
+}
+
+TEST_F(AmberScriptParserTest, ShaderTargetEnvInvalidEnv) {
+  std::string in = R"(#!amber
+SHADER geometry shader_name GLSL TARGET_ENV 12345
+void main() {
+  gl_FragColor = vec3(2, 3, 4);
+}
+END)";
+
+  Parser parser;
+  Result r = parser.Parse(in);
+  ASSERT_FALSE(r.IsSuccess());
+  EXPECT_EQ("2: expected target environment after TARGET_ENV", r.Error());
+}
+
+TEST_F(AmberScriptParserTest, ShaderVirtualFile) {
+  std::string in = R"(#!amber
+VIRTUAL_FILE my_shader.hlsl
+My shader source
+END
+
+SHADER vertex my_shader HLSL VIRTUAL_FILE my_shader.hlsl
+)";
+
+  Parser parser;
+  Result r = parser.Parse(in);
+  ASSERT_EQ(r.Error(), "");
+
+  auto script = parser.GetScript();
+  auto shader = script->GetShader("my_shader");
+  ASSERT_TRUE(shader != nullptr);
+  auto source = shader->GetData();
+  ASSERT_EQ("My shader source\n", shader->GetData());
+}
+
+TEST_F(AmberScriptParserTest, VirtualFileDuplicatePath) {
+  std::string in = R"(#!amber
+VIRTUAL_FILE my.file
+Blah
+END
+
+VIRTUAL_FILE my.file
+Blah
+END
+)";
+
+  Parser parser;
+  Result r = parser.Parse(in);
+  ASSERT_EQ(r.Error(), "8: Virtual file 'my.file' already declared");
+}
+
+TEST_F(AmberScriptParserTest, VirtualFileEmptyPath) {
+  std::string in = R"(#!amber
+VIRTUAL_FILE ""
+Blah
+END
+)";
+
+  Parser parser;
+  Result r = parser.Parse(in);
+  ASSERT_EQ(r.Error(), "4: Virtual file path was empty");
 }
 
 struct ShaderTypeData {
@@ -269,7 +366,7 @@ void main() {
   EXPECT_EQ(kShaderFormatGlsl, shader->GetFormat());
   EXPECT_EQ(shader_result, shader->GetData());
 }
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     AmberScriptParserTestsShaderType,
     AmberScriptParserShaderTypeTest,
     testing::Values(
@@ -281,7 +378,7 @@ INSTANTIATE_TEST_CASE_P(
         ShaderTypeData{"tessellation_control", kShaderTypeTessellationControl},
         ShaderTypeData{"compute", kShaderTypeCompute},
         ShaderTypeData{"multi",
-                       kShaderTypeMulti}), );  // NOLINT(whitespace/parens)
+                       kShaderTypeMulti}));  // NOLINT(whitespace/parens)
 
 struct ShaderFormatData {
   const char* name;
@@ -315,15 +412,15 @@ TEST_P(AmberScriptParserShaderFormatTest, ShaderFormats) {
   EXPECT_EQ(test_data.format, shader->GetFormat());
   EXPECT_EQ(shader_result, shader->GetData());
 }
-INSTANTIATE_TEST_CASE_P(
+
+INSTANTIATE_TEST_SUITE_P(
     AmberScriptParserTestsShaderFormat,
     AmberScriptParserShaderFormatTest,
-    testing::Values(
-        ShaderFormatData{"GLSL", kShaderFormatGlsl},
-        ShaderFormatData{"SPIRV-ASM", kShaderFormatSpirvAsm},
-        ShaderFormatData{
-            "SPIRV-HEX",
-            kShaderFormatSpirvHex}), );  // NOLINT(whitespace/parens)
+    testing::Values(ShaderFormatData{"GLSL", kShaderFormatGlsl},
+                    ShaderFormatData{"SPIRV-ASM", kShaderFormatSpirvAsm},
+                    ShaderFormatData{
+                        "SPIRV-HEX",
+                        kShaderFormatSpirvHex}));  // NOLINT(whitespace/parens)
 
 TEST_F(AmberScriptParserTest, DuplicateShaderName) {
   std::string in = R"(
@@ -338,6 +435,67 @@ END)";
   Result r = parser.Parse(in);
   ASSERT_FALSE(r.IsSuccess());
   EXPECT_EQ("7: duplicate shader name provided", r.Error());
+}
+
+TEST_F(AmberScriptParserTest, OpenCLCKernel) {
+  std::string in = R"(
+SHADER compute my_shader OPENCL-C
+# shader
+END
+)";
+
+  Parser parser;
+  Result r = parser.Parse(in);
+  ASSERT_TRUE(r.IsSuccess());
+}
+
+TEST_F(AmberScriptParserTest, OpenCLCMultiKernel) {
+  std::string in = R"(
+SHADER multi my_shader OPENCL-C
+# shader
+END
+)";
+
+  Parser parser;
+  Result r = parser.Parse(in);
+  ASSERT_TRUE(r.IsSuccess());
+}
+
+TEST_F(AmberScriptParserTest, ShaderDefaultFilePath) {
+  std::string in = R"(#!amber
+SHADER fragment shader_name GLSL
+void main() {
+  gl_FragColor = vec3(2, 3, 4);
+}
+END)";
+
+  Parser parser;
+  Result r = parser.Parse(in);
+  ASSERT_TRUE(r.IsSuccess()) << r.Error();
+
+  auto script = parser.GetScript();
+  auto shader = script->GetShader("shader_name");
+  EXPECT_EQ("embedded-shaders/shader_name", shader->GetFilePath());
+}
+
+TEST_F(AmberScriptParserTest, ShaderVirtualFilePath) {
+  std::string in = R"(#!amber
+VIRTUAL_FILE my_fragment_shader
+void main() {
+  gl_FragColor = vec3(2, 3, 4);
+}
+END
+
+SHADER fragment shader_name GLSL VIRTUAL_FILE my_fragment_shader
+)";
+
+  Parser parser;
+  Result r = parser.Parse(in);
+  ASSERT_TRUE(r.IsSuccess()) << r.Error();
+
+  auto script = parser.GetScript();
+  auto shader = script->GetShader("shader_name");
+  EXPECT_EQ("my_fragment_shader", shader->GetFilePath());
 }
 
 }  // namespace amberscript

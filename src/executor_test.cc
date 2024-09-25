@@ -37,9 +37,11 @@ class EngineStub : public Engine {
   Result Initialize(EngineConfig*,
                     Delegate*,
                     const std::vector<std::string>& features,
+                    const std::vector<std::string>& properties,
                     const std::vector<std::string>& instance_exts,
                     const std::vector<std::string>& device_exts) override {
     features_ = features;
+    properties_ = properties;
     instance_extensions_ = instance_exts;
     device_extensions_ = device_exts;
     return {};
@@ -108,6 +110,14 @@ class EngineStub : public Engine {
     return {};
   }
 
+  Result DoDrawGrid(const DrawGridCommand*) override {
+    did_draw_grid_command_ = true;
+
+    if (fail_draw_grid_command_)
+      return Result("draw grid command failed");
+    return {};
+  }
+
   void FailDrawArraysCommand() { fail_draw_arrays_command_ = true; }
   bool DidDrawArraysCommand() const { return did_draw_arrays_command_; }
   Result DoDrawArrays(const DrawArraysCommand*) override {
@@ -159,12 +169,17 @@ class EngineStub : public Engine {
     return {};
   }
 
+  Result DoTraceRays(const RayTracingCommand*) override {
+    return Result("traceray stub not implemented");
+  }
+
  private:
   bool fail_clear_command_ = false;
   bool fail_clear_color_command_ = false;
   bool fail_clear_stencil_command_ = false;
   bool fail_clear_depth_command_ = false;
   bool fail_draw_rect_command_ = false;
+  bool fail_draw_grid_command_ = false;
   bool fail_draw_arrays_command_ = false;
   bool fail_compute_command_ = false;
   bool fail_entry_point_command_ = false;
@@ -176,6 +191,7 @@ class EngineStub : public Engine {
   bool did_clear_stencil_command_ = false;
   bool did_clear_depth_command_ = false;
   bool did_draw_rect_command_ = false;
+  bool did_draw_grid_command_ = false;
   bool did_draw_arrays_command_ = false;
   bool did_compute_command_ = false;
   bool did_entry_point_command_ = false;
@@ -183,6 +199,7 @@ class EngineStub : public Engine {
   bool did_buffer_command_ = false;
 
   std::vector<std::string> features_;
+  std::vector<std::string> properties_;
   std::vector<std::string> instance_extensions_;
   std::vector<std::string> device_extensions_;
 
@@ -192,17 +209,18 @@ class EngineStub : public Engine {
 class VkScriptExecutorTest : public testing::Test {
  public:
   VkScriptExecutorTest() = default;
-  ~VkScriptExecutorTest() = default;
+  ~VkScriptExecutorTest() override = default;
 
   std::unique_ptr<Engine> MakeEngine() { return MakeUnique<EngineStub>(); }
   std::unique_ptr<Engine> MakeAndInitializeEngine(
       const std::vector<std::string>& features,
+      const std::vector<std::string>& properties,
       const std::vector<std::string>& instance_extensions,
       const std::vector<std::string>& device_extensions) {
-    auto engine = MakeUnique<EngineStub>();
-    engine->Initialize(nullptr, nullptr, features, instance_extensions,
-                       device_extensions);
-    return std::move(engine);
+    std::unique_ptr<Engine> engine = MakeUnique<EngineStub>();
+    engine->Initialize(nullptr, nullptr, features, properties,
+                       instance_extensions, device_extensions);
+    return engine;
   }
   EngineStub* ToStub(Engine* engine) {
     return static_cast<EngineStub*>(engine);
@@ -223,12 +241,14 @@ logicOp)";
 
   auto script = parser.GetScript();
   auto engine = MakeAndInitializeEngine(script->GetRequiredFeatures(),
+                                        script->GetRequiredProperties(),
                                         script->GetRequiredInstanceExtensions(),
                                         script->GetRequiredDeviceExtensions());
 
+  Options options;
   Executor ex;
-  Result r = ex.Execute(engine.get(), script.get(), nullptr, ShaderMap(),
-                        ExecutionType::kExecute);
+  Result r =
+      ex.Execute(engine.get(), script.get(), ShaderMap(), &options, nullptr);
   ASSERT_TRUE(r.IsSuccess());
 
   const auto& features = ToStub(engine.get())->GetFeatures();
@@ -238,8 +258,6 @@ logicOp)";
 
   const auto& extensions = ToStub(engine.get())->GetDeviceExtensions();
   ASSERT_EQ(static_cast<size_t>(0U), extensions.size());
-
-  EXPECT_EQ(100U, ToStub(engine.get())->GetFenceTimeoutMs());
 }
 
 TEST_F(VkScriptExecutorTest, ExecutesRequiredExtensions) {
@@ -254,12 +272,14 @@ VK_KHR_variable_pointers)";
 
   auto script = parser.GetScript();
   auto engine = MakeAndInitializeEngine(script->GetRequiredFeatures(),
+                                        script->GetRequiredProperties(),
                                         script->GetRequiredInstanceExtensions(),
                                         script->GetRequiredDeviceExtensions());
 
+  Options options;
   Executor ex;
-  Result r = ex.Execute(engine.get(), script.get(), nullptr, ShaderMap(),
-                        ExecutionType::kExecute);
+  Result r =
+      ex.Execute(engine.get(), script.get(), ShaderMap(), &options, nullptr);
   ASSERT_TRUE(r.IsSuccess());
 
   const auto& features = ToStub(engine.get())->GetFeatures();
@@ -269,8 +289,6 @@ VK_KHR_variable_pointers)";
   ASSERT_EQ(2U, extensions.size());
   EXPECT_EQ("VK_KHR_storage_buffer_storage_class", extensions[0]);
   EXPECT_EQ("VK_KHR_variable_pointers", extensions[1]);
-
-  EXPECT_EQ(100U, ToStub(engine.get())->GetFenceTimeoutMs());
 }
 
 TEST_F(VkScriptExecutorTest, ExecutesRequiredFrameBuffers) {
@@ -285,12 +303,14 @@ depthstencil D24_UNORM_S8_UINT)";
 
   auto script = parser.GetScript();
   auto engine = MakeAndInitializeEngine(script->GetRequiredFeatures(),
+                                        script->GetRequiredProperties(),
                                         script->GetRequiredInstanceExtensions(),
                                         script->GetRequiredDeviceExtensions());
 
+  Options options;
   Executor ex;
-  Result r = ex.Execute(engine.get(), script.get(), nullptr, ShaderMap(),
-                        ExecutionType::kExecute);
+  Result r =
+      ex.Execute(engine.get(), script.get(), ShaderMap(), &options, nullptr);
   ASSERT_TRUE(r.IsSuccess());
 
   const auto& features = ToStub(engine.get())->GetFeatures();
@@ -298,8 +318,6 @@ depthstencil D24_UNORM_S8_UINT)";
 
   const auto& extensions = ToStub(engine.get())->GetDeviceExtensions();
   ASSERT_EQ(static_cast<size_t>(0U), extensions.size());
-
-  EXPECT_EQ(100U, ToStub(engine.get())->GetFenceTimeoutMs());
 }
 
 TEST_F(VkScriptExecutorTest, ExecutesRequiredFenceTimeout) {
@@ -313,12 +331,14 @@ fence_timeout 12345)";
 
   auto script = parser.GetScript();
   auto engine = MakeAndInitializeEngine(script->GetRequiredFeatures(),
+                                        script->GetRequiredProperties(),
                                         script->GetRequiredInstanceExtensions(),
                                         script->GetRequiredDeviceExtensions());
 
+  Options options;
   Executor ex;
-  Result r = ex.Execute(engine.get(), script.get(), nullptr, ShaderMap(),
-                        ExecutionType::kExecute);
+  Result r =
+      ex.Execute(engine.get(), script.get(), ShaderMap(), &options, nullptr);
   ASSERT_TRUE(r.IsSuccess());
 
   const auto& features = ToStub(engine.get())->GetFeatures();
@@ -347,12 +367,14 @@ fence_timeout 12345)";
 
   auto script = parser.GetScript();
   auto engine = MakeAndInitializeEngine(script->GetRequiredFeatures(),
+                                        script->GetRequiredProperties(),
                                         script->GetRequiredInstanceExtensions(),
                                         script->GetRequiredDeviceExtensions());
 
+  Options options;
   Executor ex;
-  Result r = ex.Execute(engine.get(), script.get(), nullptr, ShaderMap(),
-                        ExecutionType::kExecute);
+  Result r =
+      ex.Execute(engine.get(), script.get(), ShaderMap(), &options, nullptr);
   ASSERT_TRUE(r.IsSuccess());
 
   const auto& features = ToStub(engine.get())->GetFeatures();
@@ -380,9 +402,10 @@ clear)";
   auto engine = MakeEngine();
   auto script = parser.GetScript();
 
+  Options options;
   Executor ex;
-  Result r = ex.Execute(engine.get(), script.get(), nullptr, ShaderMap(),
-                        ExecutionType::kExecute);
+  Result r =
+      ex.Execute(engine.get(), script.get(), ShaderMap(), &options, nullptr);
   ASSERT_TRUE(r.IsSuccess());
   EXPECT_TRUE(ToStub(engine.get())->DidClearCommand());
 }
@@ -400,9 +423,10 @@ clear)";
   ToStub(engine.get())->FailClearCommand();
   auto script = parser.GetScript();
 
+  Options options;
   Executor ex;
-  Result r = ex.Execute(engine.get(), script.get(), nullptr, ShaderMap(),
-                        ExecutionType::kExecute);
+  Result r =
+      ex.Execute(engine.get(), script.get(), ShaderMap(), &options, nullptr);
   ASSERT_FALSE(r.IsSuccess());
   EXPECT_EQ("clear command failed", r.Error());
 }
@@ -419,9 +443,10 @@ clear color 244 123 123 13)";
   auto engine = MakeEngine();
   auto script = parser.GetScript();
 
+  Options options;
   Executor ex;
-  Result r = ex.Execute(engine.get(), script.get(), nullptr, ShaderMap(),
-                        ExecutionType::kExecute);
+  Result r =
+      ex.Execute(engine.get(), script.get(), ShaderMap(), &options, nullptr);
   ASSERT_TRUE(r.IsSuccess());
   ASSERT_TRUE(ToStub(engine.get())->DidClearColorCommand());
 
@@ -448,9 +473,10 @@ clear color 123 123 123 123)";
   ToStub(engine.get())->FailClearColorCommand();
   auto script = parser.GetScript();
 
+  Options options;
   Executor ex;
-  Result r = ex.Execute(engine.get(), script.get(), nullptr, ShaderMap(),
-                        ExecutionType::kExecute);
+  Result r =
+      ex.Execute(engine.get(), script.get(), ShaderMap(), &options, nullptr);
   ASSERT_FALSE(r.IsSuccess());
   EXPECT_EQ("clear color command failed", r.Error());
 }
@@ -467,9 +493,10 @@ clear depth 24)";
   auto engine = MakeEngine();
   auto script = parser.GetScript();
 
+  Options options;
   Executor ex;
-  Result r = ex.Execute(engine.get(), script.get(), nullptr, ShaderMap(),
-                        ExecutionType::kExecute);
+  Result r =
+      ex.Execute(engine.get(), script.get(), ShaderMap(), &options, nullptr);
   ASSERT_TRUE(r.IsSuccess());
   ASSERT_TRUE(ToStub(engine.get())->DidClearDepthCommand());
 }
@@ -487,9 +514,10 @@ clear depth 24)";
   ToStub(engine.get())->FailClearDepthCommand();
   auto script = parser.GetScript();
 
+  Options options;
   Executor ex;
-  Result r = ex.Execute(engine.get(), script.get(), nullptr, ShaderMap(),
-                        ExecutionType::kExecute);
+  Result r =
+      ex.Execute(engine.get(), script.get(), ShaderMap(), &options, nullptr);
   ASSERT_FALSE(r.IsSuccess());
   EXPECT_EQ("clear depth command failed", r.Error());
 }
@@ -506,9 +534,10 @@ clear stencil 24)";
   auto engine = MakeEngine();
   auto script = parser.GetScript();
 
+  Options options;
   Executor ex;
-  Result r = ex.Execute(engine.get(), script.get(), nullptr, ShaderMap(),
-                        ExecutionType::kExecute);
+  Result r =
+      ex.Execute(engine.get(), script.get(), ShaderMap(), &options, nullptr);
   ASSERT_TRUE(r.IsSuccess());
   ASSERT_TRUE(ToStub(engine.get())->DidClearStencilCommand());
 }
@@ -526,9 +555,10 @@ clear stencil 24)";
   ToStub(engine.get())->FailClearStencilCommand();
   auto script = parser.GetScript();
 
+  Options options;
   Executor ex;
-  Result r = ex.Execute(engine.get(), script.get(), nullptr, ShaderMap(),
-                        ExecutionType::kExecute);
+  Result r =
+      ex.Execute(engine.get(), script.get(), ShaderMap(), &options, nullptr);
   ASSERT_FALSE(r.IsSuccess());
   EXPECT_EQ("clear stencil command failed", r.Error());
 }
@@ -545,9 +575,10 @@ draw rect 2 4 10 20)";
   auto engine = MakeEngine();
   auto script = parser.GetScript();
 
+  Options options;
   Executor ex;
-  Result r = ex.Execute(engine.get(), script.get(), nullptr, ShaderMap(),
-                        ExecutionType::kExecute);
+  Result r =
+      ex.Execute(engine.get(), script.get(), ShaderMap(), &options, nullptr);
   ASSERT_TRUE(r.IsSuccess());
   ASSERT_TRUE(ToStub(engine.get())->DidDrawRectCommand());
 }
@@ -565,9 +596,10 @@ draw rect 2 4 10 20)";
   ToStub(engine.get())->FailDrawRectCommand();
   auto script = parser.GetScript();
 
+  Options options;
   Executor ex;
-  Result r = ex.Execute(engine.get(), script.get(), nullptr, ShaderMap(),
-                        ExecutionType::kExecute);
+  Result r =
+      ex.Execute(engine.get(), script.get(), ShaderMap(), &options, nullptr);
   ASSERT_FALSE(r.IsSuccess());
   EXPECT_EQ("draw rect command failed", r.Error());
 }
@@ -584,9 +616,10 @@ draw arrays TRIANGLE_LIST 0 0)";
   auto engine = MakeEngine();
   auto script = parser.GetScript();
 
+  Options options;
   Executor ex;
-  Result r = ex.Execute(engine.get(), script.get(), nullptr, ShaderMap(),
-                        ExecutionType::kExecute);
+  Result r =
+      ex.Execute(engine.get(), script.get(), ShaderMap(), &options, nullptr);
   ASSERT_TRUE(r.IsSuccess());
   ASSERT_TRUE(ToStub(engine.get())->DidDrawArraysCommand());
 }
@@ -604,9 +637,10 @@ draw arrays TRIANGLE_LIST 0 0)";
   ToStub(engine.get())->FailDrawArraysCommand();
   auto script = parser.GetScript();
 
+  Options options;
   Executor ex;
-  Result r = ex.Execute(engine.get(), script.get(), nullptr, ShaderMap(),
-                        ExecutionType::kExecute);
+  Result r =
+      ex.Execute(engine.get(), script.get(), ShaderMap(), &options, nullptr);
   ASSERT_FALSE(r.IsSuccess());
   EXPECT_EQ("draw arrays command failed", r.Error());
 }
@@ -623,9 +657,10 @@ compute 2 3 4)";
   auto engine = MakeEngine();
   auto script = parser.GetScript();
 
+  Options options;
   Executor ex;
-  Result r = ex.Execute(engine.get(), script.get(), nullptr, ShaderMap(),
-                        ExecutionType::kExecute);
+  Result r =
+      ex.Execute(engine.get(), script.get(), ShaderMap(), &options, nullptr);
   ASSERT_TRUE(r.IsSuccess());
   ASSERT_TRUE(ToStub(engine.get())->DidComputeCommand());
 }
@@ -643,9 +678,10 @@ compute 2 3 4)";
   ToStub(engine.get())->FailComputeCommand();
   auto script = parser.GetScript();
 
+  Options options;
   Executor ex;
-  Result r = ex.Execute(engine.get(), script.get(), nullptr, ShaderMap(),
-                        ExecutionType::kExecute);
+  Result r =
+      ex.Execute(engine.get(), script.get(), ShaderMap(), &options, nullptr);
   ASSERT_FALSE(r.IsSuccess());
   EXPECT_EQ("compute command failed", r.Error());
 }
@@ -662,9 +698,10 @@ vertex entrypoint main)";
   auto engine = MakeEngine();
   auto script = parser.GetScript();
 
+  Options options;
   Executor ex;
-  Result r = ex.Execute(engine.get(), script.get(), nullptr, ShaderMap(),
-                        ExecutionType::kExecute);
+  Result r =
+      ex.Execute(engine.get(), script.get(), ShaderMap(), &options, nullptr);
   ASSERT_TRUE(r.IsSuccess());
   ASSERT_TRUE(ToStub(engine.get())->DidEntryPointCommand());
 }
@@ -682,9 +719,10 @@ vertex entrypoint main)";
   ToStub(engine.get())->FailEntryPointCommand();
   auto script = parser.GetScript();
 
+  Options options;
   Executor ex;
-  Result r = ex.Execute(engine.get(), script.get(), nullptr, ShaderMap(),
-                        ExecutionType::kExecute);
+  Result r =
+      ex.Execute(engine.get(), script.get(), ShaderMap(), &options, nullptr);
   ASSERT_FALSE(r.IsSuccess());
   EXPECT_EQ("entrypoint command failed", r.Error());
 }
@@ -701,9 +739,10 @@ patch parameter vertices 10)";
   auto engine = MakeEngine();
   auto script = parser.GetScript();
 
+  Options options;
   Executor ex;
-  Result r = ex.Execute(engine.get(), script.get(), nullptr, ShaderMap(),
-                        ExecutionType::kExecute);
+  Result r =
+      ex.Execute(engine.get(), script.get(), ShaderMap(), &options, nullptr);
   ASSERT_TRUE(r.IsSuccess());
   ASSERT_TRUE(ToStub(engine.get())->DidPatchParameterVerticesCommand());
 }
@@ -721,9 +760,10 @@ patch parameter vertices 10)";
   ToStub(engine.get())->FailPatchParameterVerticesCommand();
   auto script = parser.GetScript();
 
+  Options options;
   Executor ex;
-  Result r = ex.Execute(engine.get(), script.get(), nullptr, ShaderMap(),
-                        ExecutionType::kExecute);
+  Result r =
+      ex.Execute(engine.get(), script.get(), ShaderMap(), &options, nullptr);
   ASSERT_FALSE(r.IsSuccess());
   EXPECT_EQ("patch command failed", r.Error());
 }
@@ -739,9 +779,10 @@ probe rect rgba 2 3 40 40 0.2 0.4 0.4 0.3)";
   auto engine = MakeEngine();
   auto script = parser.GetScript();
 
+  Options options;
   Executor ex;
-  Result r = ex.Execute(engine.get(), script.get(), nullptr, ShaderMap(),
-                        ExecutionType::kExecute);
+  Result r =
+      ex.Execute(engine.get(), script.get(), ShaderMap(), &options, nullptr);
   ASSERT_TRUE(r.IsSuccess());
   // ASSERT_TRUE(ToStub(engine.get())->DidProbeCommand());
 }
@@ -758,9 +799,10 @@ probe rect rgba 2 3 40 40 0.2 0.4 0.4 0.3)";
   // ToStub(engine.get())->FailProbeCommand();
   auto script = parser.GetScript();
 
+  Options options;
   Executor ex;
-  Result r = ex.Execute(engine.get(), script.get(), nullptr, ShaderMap(),
-                        ExecutionType::kExecute);
+  Result r =
+      ex.Execute(engine.get(), script.get(), ShaderMap(), &options, nullptr);
   ASSERT_FALSE(r.IsSuccess());
   EXPECT_EQ("probe command failed", r.Error());
 }
@@ -777,9 +819,10 @@ ssbo 0 24)";
   auto engine = MakeEngine();
   auto script = parser.GetScript();
 
+  Options options;
   Executor ex;
-  Result r = ex.Execute(engine.get(), script.get(), nullptr, ShaderMap(),
-                        ExecutionType::kExecute);
+  Result r =
+      ex.Execute(engine.get(), script.get(), ShaderMap(), &options, nullptr);
   ASSERT_TRUE(r.IsSuccess());
   ASSERT_TRUE(ToStub(engine.get())->DidBufferCommand());
 }
@@ -797,9 +840,10 @@ ssbo 0 24)";
   ToStub(engine.get())->FailBufferCommand();
   auto script = parser.GetScript();
 
+  Options options;
   Executor ex;
-  Result r = ex.Execute(engine.get(), script.get(), nullptr, ShaderMap(),
-                        ExecutionType::kExecute);
+  Result r =
+      ex.Execute(engine.get(), script.get(), ShaderMap(), &options, nullptr);
   ASSERT_FALSE(r.IsSuccess());
   EXPECT_EQ("buffer command failed", r.Error());
 }
@@ -815,9 +859,10 @@ probe ssbo vec3 0 2 <= 2 3 4)";
   auto engine = MakeEngine();
   auto script = parser.GetScript();
 
+  Options options;
   Executor ex;
-  Result r = ex.Execute(engine.get(), script.get(), nullptr, ShaderMap(),
-                        ExecutionType::kExecute);
+  Result r =
+      ex.Execute(engine.get(), script.get(), ShaderMap(), &options, nullptr);
   ASSERT_TRUE(r.IsSuccess());
   // ASSERT_TRUE(ToStub(engine.get())->DidProbeSSBOCommand());
 }
@@ -834,9 +879,10 @@ probe ssbo vec3 0 2 <= 2 3 4)";
   // ToStub(engine.get())->FailProbeSSBOCommand();
   auto script = parser.GetScript();
 
+  Options options;
   Executor ex;
-  Result r = ex.Execute(engine.get(), script.get(), nullptr, ShaderMap(),
-                        ExecutionType::kExecute);
+  Result r =
+      ex.Execute(engine.get(), script.get(), ShaderMap(), &options, nullptr);
   ASSERT_FALSE(r.IsSuccess());
   EXPECT_EQ("probe ssbo command failed", r.Error());
 }

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-cmake_minimum_required(VERSION 2.8)
+cmake_minimum_required(VERSION 3.13)
 if (POLICY CMP0048)
   cmake_policy(SET CMP0048 NEW)
 endif()
@@ -26,9 +26,9 @@ endif()
 project(amber)
 enable_testing()
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR})
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-set(CMAKE_CXX_STANDARD 11)
 
 include(CheckIncludeFile)
 include(GNUInstallDirs)
@@ -41,10 +41,23 @@ option(AMBER_SKIP_SHADERC
   "Skip building Shaderc into the library" ${AMBER_SKIP_SHADERC})
 option(AMBER_SKIP_SAMPLES
   "Skip building sample application" ${AMBER_SKIP_SAMPLES})
+option(AMBER_SKIP_LODEPNG
+  "Skip building lodepng into the library" ${AMBER_SKIP_LODEPNG})
 option(AMBER_USE_DXC "Enable DXC integration" ${AMBER_USE_DXC})
 option(AMBER_USE_LOCAL_VULKAN "Build with vulkan in third_party" OFF)
+option(AMBER_USE_CLSPV "Build with Clspv support" OFF)
 option(AMBER_ENABLE_SWIFTSHADER
   "Build using SwiftShader" ${AMBER_ENABLE_SWIFTSHADER})
+option(AMBER_ENABLE_RTTI
+  "Build with runtime type information" OFF)
+option(AMBER_DISABLE_WERROR "Build without the -Werror flag" ${AMBER_DISABLE_WERROR})
+option(AMBER_DISABLE_WEVERYTHING "Build without the -Weverything flag" ${AMBER_DISABLE_WEVERYTHING})
+
+if (${AMBER_ENABLE_VK_DEBUGGING})
+  message(FATAL_ERROR "Amber no longer supports Vulkan debugging")
+endif()
+
+set(CMAKE_CXX_STANDARD 17)
 
 if(WIN32)
   # On Windows, CMake by default compiles with the shared CRT.
@@ -79,6 +92,12 @@ else()
   set(AMBER_ENABLE_SAMPLES TRUE)
 endif()
 
+if (${AMBER_SKIP_LODEPNG})
+  set(AMBER_ENABLE_LODEPNG FALSE)
+else()
+  set(AMBER_ENABLE_LODEPNG TRUE)
+endif()
+
 if (${AMBER_ENABLE_SWIFTSHADER})
   # Swiftshader requires the loader to be built.
   set(AMBER_USE_LOCAL_VULKAN TRUE)
@@ -90,15 +109,29 @@ else()
   set(AMBER_ENABLE_DXC FALSE)
 endif()
 
+if (${AMBER_USE_CLSPV})
+  set(AMBER_ENABLE_CLSPV TRUE)
+  set(AMBER_ENABLE_SPIRV_TOOLS TRUE)
+else()
+  set(AMBER_ENABLE_CLSPV FALSE)
+endif()
+
+if (${AMBER_USE_CLSPV} OR ${AMBER_ENABLE_SWIFTSHADER})
+  enable_language(ASM)
+endif()
+
 message(STATUS "Using python3")
-find_package(PythonInterp 3 REQUIRED)
+find_package(Python3 REQUIRED)
 
 message(STATUS "Amber enable SPIRV-Tools: ${AMBER_ENABLE_SPIRV_TOOLS}")
 message(STATUS "Amber enable Shaderc: ${AMBER_ENABLE_SHADERC}")
 message(STATUS "Amber enable tests: ${AMBER_ENABLE_TESTS}")
 message(STATUS "Amber enable samples: ${AMBER_ENABLE_SAMPLES}")
+message(STATUS "Amber enable lodepng: ${AMBER_ENABLE_LODEPNG}")
 message(STATUS "Amber enable SwiftShader: ${AMBER_ENABLE_SWIFTSHADER}")
 message(STATUS "Amber enable DXC: ${AMBER_ENABLE_DXC}")
+message(STATUS "Amber enable Clspv: ${AMBER_ENABLE_CLSPV}")
+message(STATUS "Amber enable RTTI: ${AMBER_ENABLE_RTTI}")
 
 include_directories("${PROJECT_SOURCE_DIR}/include")
 include_directories("${PROJECT_SOURCE_DIR}")
@@ -119,6 +152,9 @@ add_definitions(-DAMBER_ENGINE_DAWN=$<BOOL:${Dawn_FOUND}>)
 add_definitions(-DAMBER_ENABLE_SPIRV_TOOLS=$<BOOL:${AMBER_ENABLE_SPIRV_TOOLS}>)
 add_definitions(-DAMBER_ENABLE_SHADERC=$<BOOL:${AMBER_ENABLE_SHADERC}>)
 add_definitions(-DAMBER_ENABLE_DXC=$<BOOL:${AMBER_ENABLE_DXC}>)
+add_definitions(-DAMBER_ENABLE_CLSPV=$<BOOL:${AMBER_ENABLE_CLSPV}>)
+add_definitions(-DAMBER_ENABLE_LODEPNG=$<BOOL:${AMBER_ENABLE_LODEPNG}>)
+add_definitions(-DAMBER_ENABLE_RTTI=$<BOOL:${AMBER_ENABLE_RTTI}>)
 
 set(CMAKE_DEBUG_POSTFIX "")
 
@@ -154,10 +190,10 @@ if(MSVC)
   if(NOT ${AMBER_ENABLE_SHARED_CRT})
     message(STATUS "Amber: Static C runtime selected: replacing /MD* with /MT*")
     foreach (flag_var
-	     CMAKE_C_FLAGS CMAKE_C_FLAGS_DEBUG CMAKE_C_FLAGS_RELEASE
-	     CMAKE_C_FLAGS_MINSIZEREL CMAKE_C_FLAGS_RELWITHDEBINFO
-	     CMAKE_CXX_FLAGS CMAKE_CXX_FLAGS_DEBUG CMAKE_CXX_FLAGS_RELEASE
-	     CMAKE_CXX_FLAGS_MINSIZEREL CMAKE_CXX_FLAGS_RELWITHDEBINFO)
+       CMAKE_C_FLAGS CMAKE_C_FLAGS_DEBUG CMAKE_C_FLAGS_RELEASE
+       CMAKE_C_FLAGS_MINSIZEREL CMAKE_C_FLAGS_RELWITHDEBINFO
+       CMAKE_CXX_FLAGS CMAKE_CXX_FLAGS_DEBUG CMAKE_CXX_FLAGS_RELEASE
+       CMAKE_CXX_FLAGS_MINSIZEREL CMAKE_CXX_FLAGS_RELWITHDEBINFO)
       string(REPLACE "/MD" "/MT" ${flag_var} "${${flag_var}}")
     endforeach()
   endif()
@@ -166,30 +202,39 @@ endif()
 function(amber_default_compile_options TARGET)
   if (${COMPILER_IS_LIKE_GNU})
     target_compile_options(${TARGET} PRIVATE
-      -std=c++11
       -fno-exceptions
-      -fno-rtti
       -fvisibility=hidden
       -Wall
-      -Werror
       -Wextra
-      -Wno-c++98-compat
-      -Wno-c++98-compat-pedantic
-      -Wno-format-pedantic
+      -Wno-cast-function-type-strict
       -Wno-padded
       -Wno-switch-enum
       -Wno-unknown-pragmas
-      -Wno-unknown-warning-option
+      -Wno-unsafe-buffer-usage
       -pedantic-errors
     )
+    if (NOT ${AMBER_DISABLE_WERROR})
+      target_compile_options(${TARGET} PRIVATE -Werror)
+    endif()
+
+    if(NOT ${AMBER_ENABLE_RTTI})
+      target_compile_options(${TARGET} PRIVATE -fno-rtti)
+    endif()
 
     if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
-      target_compile_options(${TARGET} PRIVATE -Weverything)
+      target_compile_options(${TARGET} PRIVATE
+        -Wno-c++98-compat
+        -Wno-c++98-compat-pedantic
+        -Wno-format-pedantic
+        -Wno-unknown-warning-option
+      )
+      if (NOT ${AMBER_DISABLE_WEVERYTHING})
+        target_compile_options(${TARGET} PRIVATE -Weverything)
+      endif()
     endif()
   endif()
 
   if (MSVC)
-    # Specify /EHs for exception handling.
     target_compile_options(${TARGET} PRIVATE
       /bigobj
       /EHsc
@@ -225,6 +270,6 @@ endfunction()
 add_subdirectory(third_party)
 add_subdirectory(src)
 
-if (${AMBER_ENABLE_SAMPLES} AND NOT ANDROID)
+if (${AMBER_ENABLE_SAMPLES})
   add_subdirectory(samples)
 endif()

@@ -1,20 +1,37 @@
 out
+build
+third_party/clspv
+third_party/clspv-clang
+third_party/clspv-llvm
 third_party/cpplint
 third_party/dxc
+third_party/DirectX-Headers
 third_party/glslang
 third_party/googletest
+third_party/json
 third_party/lodepng
 third_party/shaderc
-third_party/spirv-tools
 third_party/spirv-headers
+third_party/spirv-tools
 third_party/swiftshader
 third_party/vulkan-headers
 third_party/vulkan-loader
+third_party/vulkan-validationlayers/
+third_party/vulkan-utility-libraries/
+third_party/robin-hood-hashing
 .vs
+
+*.pyc
 
 # Vim swap files
 [._]*.s[a-w][a-z]
 
 # C-Lion
-.idea
-cmake-build-debug
+.idea/
+cmake-build-*/
+
+### Clangd cached index files
+/.cache
+
+### The 'compile_commands' file can be generated at root
+compile_commands.json

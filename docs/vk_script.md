@@ -54,6 +54,7 @@ test will continue.
 
 
 #### Require Examples
+
 ```
 [require]
 independentBlend
@@ -78,6 +79,7 @@ The shaders accepted are:
  * `vertex`
 
 #### Shader examples
+
 ```
 [fragment shader]
 #version 430
@@ -97,7 +99,7 @@ Other example shader header lines are:
 
 ## Vertex Data
 The `vertex data` section provides vertex attributes and data for `draw array`
-commands. The data is formated with a header row followed by data rows.
+commands. The data is formatted with a header row followed by data rows.
 
 The headers can be provided in one of two forms. The first,
 `attribute_location/format` where `attribute_location` is the location of the
@@ -107,6 +109,7 @@ the types listed in the *GL Types* section below. The `glsl_type` is one listed
 in the *GLSL Types* section below.
 
 #### Vertex Data example
+
 ```
 [vertex data]
 0/R32G32B32_SFLOAT  1/R8G8B8_UNORM
@@ -122,6 +125,7 @@ provided to the `draw arrays` command. The indices themselves are a list of
 integer indexes to use.
 
 #### Indices Example
+
 ```
 [indices]
 # comment line
@@ -178,7 +182,7 @@ specified then the `a` parameter is dis-allowed.
 ### Probe
  * `[relative] probe [rect] (rgb|rgba) (_x_, _y_[, _width_, _height_]) (_r_, _g_, _b_[, _a_])`
 
-Probes a portion of the window to verify the pixes are of color r,g,b and
+Probes a portion of the window to verify the pixels are of color r,g,b and
 optionally a. If `rgba` is specifed then the `a` parameter is required. If
 `rgb` is specified then the `a` parameter is dis-allowed. If `rect` is specified
 then `width` and `height` are required. If `rect` is not specified then `width`
@@ -334,6 +338,7 @@ The pipeline commands with their accepted data are:
  * `colorWriteMask <VkColorComponent bitmask>`
 
 #### Test Example
+
 ```
 [test]
 clear color 1 0.4 0.5 0.2
@@ -491,8 +496,8 @@ relative probe rect rgba (0.0, 0.0, 1.0, 1.0) (1.0, 0.4, 0.5, 0.2)
   * `sparseResidencyAliased`
   * `variableMultisampleRate`
   * `inheritedQueries`
-``
-### `Image Formats`
+
+### Image Formats
   * `A1R5G5B5_UNORM_PACK16`
   * `A2B10G10R10_SINT_PACK32`
   * `A2B10G10R10_SNORM_PACK32`

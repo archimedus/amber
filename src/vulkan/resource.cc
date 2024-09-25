@@ -1,4 +1,5 @@
 // Copyright 2018 The Amber Authors.
+// Copyright (C) 2024 Advanced Micro Devices, Inc. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,9 +15,9 @@
 
 #include "src/vulkan/resource.h"
 
+#include <cstring>
 #include <limits>
 
-#include "src/make_unique.h"
 #include "src/vulkan/command_buffer.h"
 #include "src/vulkan/device.h"
 
@@ -98,7 +99,6 @@ uint32_t Resource::ChooseMemory(uint32_t memory_type_bits,
 
   return first_non_zero;
 }
-
 Result Resource::AllocateAndBindMemoryToVkBuffer(VkBuffer buffer,
                                                  VkDeviceMemory* memory,
                                                  VkMemoryPropertyFlags flags,
@@ -142,9 +142,21 @@ Result Resource::AllocateMemory(VkDeviceMemory* memory,
                                 VkDeviceSize size,
                                 uint32_t memory_type_index) {
   VkMemoryAllocateInfo alloc_info = VkMemoryAllocateInfo();
+  VkMemoryAllocateFlagsInfo allocFlagsInfo = VkMemoryAllocateFlagsInfo();
+
   alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
   alloc_info.allocationSize = size;
   alloc_info.memoryTypeIndex = memory_type_index;
+
+  if (memory_allocate_flags_ != 0) {
+    allocFlagsInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO;
+    allocFlagsInfo.pNext = nullptr;
+    allocFlagsInfo.flags = memory_allocate_flags_;
+    allocFlagsInfo.deviceMask = 0u;
+
+    alloc_info.pNext = &allocFlagsInfo;
+  }
+
   if (device_->GetPtrs()->vkAllocateMemory(device_->GetVkDevice(), &alloc_info,
                                            nullptr, memory) != VK_SUCCESS) {
     return Result("Vulkan::Calling vkAllocateMemory Fail");
@@ -167,8 +179,14 @@ void Resource::UnMapMemory(VkDeviceMemory memory) {
   device_->GetPtrs()->vkUnmapMemory(device_->GetVkDevice(), memory);
 }
 
+void Resource::UpdateMemoryWithRawData(const std::vector<uint8_t>& raw_data) {
+  size_t effective_size =
+      raw_data.size() > GetSizeInBytes() ? GetSizeInBytes() : raw_data.size();
+  std::memcpy(HostAccessibleMemoryPtr(), raw_data.data(), effective_size);
+}
+
 void Resource::MemoryBarrier(CommandBuffer* command_buffer) {
-  // TODO(jaebaek): Current memory barrier is natively implemented.
+  // TODO(jaebaek): Current memory barrier is naively implemented.
   // Update it with the following access flags:
   // (r = read, w = write)
   //

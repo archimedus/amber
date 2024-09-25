@@ -38,10 +38,12 @@ if (${AMBER_ENABLE_SHADERC})
 
   set(SHADERC_THIRD_PARTY_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR} CACHE STRING "")
   set(SHADERC_SKIP_TESTS ON CACHE BOOL ON)
+  set(SHADERC_ENABLE_WERROR_COMPILE OFF CACHE BOOL "disable werror")
+
   add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/shaderc)
 endif()
 
-if (${AMBER_ENABLE_SAMPLES})
+if (${AMBER_ENABLE_SAMPLES} AND ${AMBER_ENABLE_LODEPNG})
   # Lodepng
   set(LODEPNG_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/lodepng/lodepng.cpp)
   add_library(lodepng STATIC ${LODEPNG_SOURCES})
@@ -50,28 +52,47 @@ endif()
 if (${AMBER_USE_LOCAL_VULKAN})
   add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/vulkan-headers)
 
-  set(BUILD_TESTS FALSE)
+  add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/vulkan-utility-libraries)
 
-  # The vulkan-loader CMake file assumes that directory exists if
-  # Wayland support is to be built.
-  if(NOT EXISTS ${WAYLAND_CLIENT_INCLUDE_DIR})
-    message(STATUS "Amber: Disabling Wayland support in Vulkan-Loader")
-    set(BUILD_WSI_WAYLAND_SUPPORT OFF CACHE BOOL "" FORCE)
+  # Skip adding the validation layers and the Vulkan loader on Android.
+  if (NOT ANDROID)
+
+    set(BUILD_TESTS FALSE)
+    set(BUILD_WERROR OFF)
+
+    # The vulkan-loader CMake file assumes that directory exists if
+    # Wayland support is to be built.
+    if(NOT EXISTS ${WAYLAND_CLIENT_INCLUDE_DIR})
+      message(STATUS "Amber: Disabling Wayland support in Vulkan-Loader")
+      set(BUILD_WSI_WAYLAND_SUPPORT OFF CACHE BOOL "" FORCE)
+    endif()
+    message(STATUS "Amber: Disabling X11 support in Vulkan-Loader")
+    set(BUILD_WSI_XLIB_SUPPORT OFF CACHE BOOL "" FORCE)
+
+    set(SPIRV_HEADERS_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/spirv-headers/include" CACHE STRING "" FORCE)
+
+    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/vulkan-loader)
+    if (MSVC)
+      option(BUILD_WERROR "Treat compiler warnings as errors" OFF)
+    endif()
+    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/vulkan-validationlayers)
   endif()
-  message(STATUS "Amber: Disabling X11 support in Vulkan-Loader")
-  set(BUILD_WSI_XLIB_SUPPORT OFF CACHE BOOL "" FORCE)
-
-  add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/vulkan-loader)
 endif()
 
 if (${AMBER_ENABLE_SWIFTSHADER})
-  set(BUILD_EGL FALSE CACHE BOOL FALSE)
-  set(BUILD_GLESv2 FALSE CACHE BOOL FALSE)
-  set(BUILD_GLES_CM FALSE CACHE BOOL FALSE)
-  set(BUILD_VULKAN TRUE CACHE BOOL TRUE)
-  set(BUILD_SAMPLES FALSE CACHE BOOL FALSE)
-  set(BUILD_TESTS FALSE CACHE BOOL FALSE)
-  set(WARNINGS_AS_ERRORS FALSE CACHE BOOL FALSE)
+  set(SWIFTSHADER_BUILD_EGL FALSE)
+  set(SWIFTSHADER_BUILD_GLESv2 FALSE)
+  set(SWIFTSHADER_BUILD_GLES_CM FALSE)
+  set(SWIFTSHADER_BUILD_VULKAN TRUE)
+  set(SWIFTSHADER_BUILD_SAMPLES FALSE)
+  set(SWIFTSHADER_BUILD_TESTS FALSE)
+  set(SWIFTSHADER_BUILD_PVR FALSE)
+  set(SWIFTSHADER_BUILD_BENCHMARKS FALSE)
+  set(SWIFTSHADER_WARNINGS_AS_ERRORS FALSE)
+  set(SWIFTSHADER_USE_GROUP_SOURCES FALSE)
+  set(SWIFTSHADER_WARNINGS_AS_ERRORS FALSE)
+  set(SWIFTSHADER_LOGGING_LEVEL "Error")
+
   add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/swiftshader)
 endif()
 
@@ -85,14 +106,13 @@ if (${AMBER_ENABLE_DXC})
   set(LLVM_DEFAULT_TARGET_TRIPLE "dxil-ms-dx" CACHE STRING "")
   set(LLVM_ENABLE_EH ON CACHE BOOL "")
   set(LLVM_ENABLE_RTTI ON CACHE BOOL "")
+  set(LLVM_BUILD_EXAMPLES OFF CACHE BOOL "")
+  set(LLVM_BUILD_TESTS ON CACHE BOOL "")
   set(LLVM_INCLUDE_DOCS OFF CACHE BOOL "")
   set(LLVM_INCLUDE_EXAMPLES OFF CACHE BOOL "")
-  set(LLVM_BUILD_TESTS ON CACHE BOOL "")
   set(LLVM_INCLUDE_TESTS OFF CACHE BOOL "")
   set(LLVM_INCLUDE_TOOLS ON CACHE BOOL "")
   set(LLVM_INCLUDE_UTILS OFF CACHE BOOL "")
-  set(LLVM_BUILD_EXAMPLES OFF CACHE BOOL "")
-  set(LLVM_INCLUDE_EXAMPLES OFF CACHE BOOL "")
   set(LLVM_USE_CRT_DEBUG MTd CACHE STRING "")
   set(LLVM_USE_CRT_RELEASE MT CACHE STRING "")
   set(LLVM_USE_CRT_RELWITHDEBINFO MT CACHE STRING "")
@@ -114,6 +134,13 @@ if (${AMBER_ENABLE_DXC})
   set(LLVM_BUILD_STATIC ON CACHE BOOL "")
   set(BUILD_SHARED_LIBS OFF CACHE BOOL "")
 
+  set(LLVM_ENABLE_WERROR OFF)
+
+  # Disable HCT.cmake looking for and using clang-format. This is used to compare generated files
+  # against the copy that is committed to the repo, but fails because the DXC .clangformat file is
+  # not visible from our build dir. We don't need this validation, so just disable it.
+  set(CLANG_FORMAT_EXE "" CACHE STRING "" FORCE)
+
   add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/dxc EXCLUDE_FROM_ALL)
 
   if (MSVC)
@@ -128,4 +155,36 @@ if (${AMBER_ENABLE_DXC})
         ARGS -E copy ${CMAKE_BINARY_DIR}/third_party/dxc/bin/dxcompiler.dll ${CMAKE_BINARY_DIR}
       )
   endif()
+endif()
+
+if (${AMBER_ENABLE_CLSPV})
+  if (NOT DEFINED AMBER_CLSPV_DIR)
+    set(AMBER_CLSPV_DIR "${CMAKE_CURRENT_SOURCE_DIR}/clspv")
+  endif()
+  if (NOT DEFINED AMBER_CLSPV_LLVM_DIR)
+    set(AMBER_CLSPV_LLVM_DIR "${CMAKE_CURRENT_SOURCE_DIR}/clspv-llvm")
+  endif()
+
+  list(APPEND CMAKE_MODULE_PATH ${AMBER_CLSPV_LLVM_DIR}/llvm/cmake/modules/)
+
+  set(CLSPV_LLVM_SOURCE_DIR "${AMBER_CLSPV_LLVM_DIR}/llvm" CACHE STRING "")
+  set(CLSPV_CLANG_SOURCE_DIR "${AMBER_CLSPV_LLVM_DIR}/clang" CACHE STRING "")
+  set(SPIRV_HEADERS_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/spirv-headers" CACHE STRING "")
+  set(SPIRV_TOOLS_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/spirv-tools" CACHE STRING "")
+  set(LINKER_SUPPORTS_COLOR_DIAGNOSTICS 0 CACHE INTERNAL 0 FORCE)
+
+  set(LLVM_TEMPORARILY_ALLOW_OLD_TOOLCHAIN ON CACHE STRING "")
+  set(LLVM_BUILD_STATIC OFF CACHE BOOL "")
+  set(LLVM_INCLUDE_BENCHMARKS OFF CACHE BOOL "")
+  set(LLVM_INCLUDE_DOCS OFF CACHE BOOL "")
+  set(LLVM_INCLUDE_EXAMPLES OFF CACHE BOOL "")
+  set(LLVM_INCLUDE_GO_TESTS OFF CACHE BOOL "")
+  set(LLVM_INCLUDE_TESTS OFF CACHE BOOL "")
+  set(LLVM_INCLUDE_UTILS OFF CACHE BOOL "")
+
+  add_subdirectory(${AMBER_CLSPV_DIR} ${CMAKE_CURRENT_BINARY_DIR}/clspv)
+
+  # TODO(asuonpaa): Using the latest LLVM gives multiple warnings of using deprecated
+  # arguments. Remove this when CLSPV doesn't use them.
+  add_compile_options(clspv, NO_DEPRECATED_FLAGS)
 endif()

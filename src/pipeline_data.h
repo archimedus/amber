@@ -21,12 +21,23 @@
 
 namespace amber {
 
+struct Viewport {
+  float x;
+  float y;
+  float w;
+  float h;
+  float mind;
+  float maxd;
+};
+
 /// Stores information used to configure a pipeline.
 class PipelineData {
  public:
   PipelineData();
   ~PipelineData();
   PipelineData(const PipelineData&);
+
+  PipelineData& operator=(const PipelineData&) = default;
 
   void SetTopology(Topology topo) { topology_ = topo; }
   Topology GetTopology() const { return topology_; }
@@ -159,6 +170,19 @@ class PipelineData {
   void SetAlphaBlendOp(BlendOp op) { alpha_blend_op_ = op; }
   BlendOp GetAlphaBlendOp() const { return alpha_blend_op_; }
 
+  void SetViewport(const Viewport& v) {
+    has_viewport_data = true;
+    vp = v;
+  }
+
+  bool HasViewportData() const { return has_viewport_data; }
+  const Viewport& GetViewport() const { return vp; }
+
+  void SetPatchControlPoints(uint32_t control_points) {
+    patch_control_points_ = control_points;
+  }
+  uint32_t GetPatchControlPoints() const { return patch_control_points_; }
+
  private:
   StencilOp front_fail_op_ = StencilOp::kKeep;
   StencilOp front_pass_op_ = StencilOp::kKeep;
@@ -174,11 +198,11 @@ class PipelineData {
   PolygonMode polygon_mode_ = PolygonMode::kFill;
   CullMode cull_mode_ = CullMode::kNone;
   FrontFace front_face_ = FrontFace::kCounterClockwise;
-  CompareOp depth_compare_op_ = CompareOp::kLess;
+  CompareOp depth_compare_op_ = CompareOp::kAlways;
   LogicOp logic_op_ = LogicOp::kClear;
-  BlendFactor src_color_blend_factor_ = BlendFactor::kZero;
+  BlendFactor src_color_blend_factor_ = BlendFactor::kOne;
   BlendFactor dst_color_blend_factor_ = BlendFactor::kZero;
-  BlendFactor src_alpha_blend_factor_ = BlendFactor::kZero;
+  BlendFactor src_alpha_blend_factor_ = BlendFactor::kOne;
   BlendFactor dst_alpha_blend_factor_ = BlendFactor::kZero;
   BlendOp color_blend_op_ = BlendOp::kAdd;
   BlendOp alpha_blend_op_ = BlendOp::kAdd;
@@ -211,6 +235,11 @@ class PipelineData {
   float depth_bias_slope_factor_ = 0.0f;
   float min_depth_bounds_ = 0.0f;
   float max_depth_bounds_ = 0.0f;
+
+  bool has_viewport_data = false;
+  Viewport vp;
+
+  uint32_t patch_control_points_ = 3u;
 };
 
 }  // namespace amber

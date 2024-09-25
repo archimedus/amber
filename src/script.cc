@@ -1,4 +1,5 @@
 // Copyright 2018 The Amber Authors.
+// Copyright (C) 2024 Advanced Micro Devices, Inc. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,26 +15,43 @@
 
 #include "src/script.h"
 
+#include "src/make_unique.h"
+#include "src/type_parser.h"
+
 namespace amber {
 
-Script::Script() = default;
+Script::Script() : virtual_files_(MakeUnique<VirtualFileStore>()) {}
 
 Script::~Script() = default;
 
 std::vector<ShaderInfo> Script::GetShaderInfo() const {
   std::vector<ShaderInfo> ret;
   for (const auto& shader : shaders_) {
-    // TODO(dsinclair): The name returned should be the
-    // `pipeline_name + shader_name` instead of just shader name when we have
-    // pipelines everywhere
+    bool in_pipeline = false;
+    // A given shader could be in multiple pipelines with different
+    // optimizations so make sure we check and report all pipelines.
+    for (const auto& pipeline : pipelines_) {
+      auto shader_info = pipeline->GetShader(shader.get());
+      if (shader_info) {
+        ret.emplace_back(
+            ShaderInfo{shader->GetFormat(), shader->GetType(),
+                       pipeline->GetName() + "-" + shader->GetName(),
+                       shader->GetData(), shader_info->GetShaderOptimizations(),
+                       shader->GetTargetEnv(), shader_info->GetData()});
 
-    // TODO(dsinclair): The optimization passes should be retrieved from the
-    // pipeline and returned here instead of an empty array.
-    ret.emplace_back(ShaderInfo{shader->GetFormat(),
-                                shader->GetType(),
-                                shader->GetName(),
-                                shader->GetData(),
-                                {}});
+        in_pipeline = true;
+      }
+    }
+
+    if (!in_pipeline) {
+      ret.emplace_back(ShaderInfo{shader->GetFormat(),
+                                  shader->GetType(),
+                                  shader->GetName(),
+                                  shader->GetData(),
+                                  {},
+                                  shader->GetTargetEnv(),
+                                  {}});
+    }
   }
   return ret;
 }
@@ -86,7 +104,74 @@ bool Script::IsKnownFeature(const std::string& name) const {
          name == "sparseResidencyAliased" ||
          name == "variableMultisampleRate" || name == "inheritedQueries" ||
          name == "VariablePointerFeatures.variablePointers" ||
-         name == "VariablePointerFeatures.variablePointersStorageBuffer";
+         name == "VariablePointerFeatures.variablePointersStorageBuffer" ||
+         name == "Float16Int8Features.shaderFloat16" ||
+         name == "Float16Int8Features.shaderInt8" ||
+         name == "Storage8BitFeatures.storageBuffer8BitAccess" ||
+         name == "Storage8BitFeatures.uniformAndStorageBuffer8BitAccess" ||
+         name == "Storage8BitFeatures.storagePushConstant8" ||
+         name == "Storage16BitFeatures.storageBuffer16BitAccess" ||
+         name == "Storage16BitFeatures.uniformAndStorageBuffer16BitAccess" ||
+         name == "Storage16BitFeatures.storagePushConstant16" ||
+         name == "Storage16BitFeatures.storageInputOutput16" ||
+         name == "SubgroupSizeControl.subgroupSizeControl" ||
+         name == "SubgroupSizeControl.computeFullSubgroups" ||
+         name == "SubgroupSupportedOperations.basic" ||
+         name == "SubgroupSupportedOperations.vote" ||
+         name == "SubgroupSupportedOperations.arithmetic" ||
+         name == "SubgroupSupportedOperations.ballot" ||
+         name == "SubgroupSupportedOperations.shuffle" ||
+         name == "SubgroupSupportedOperations.shuffleRelative" ||
+         name == "SubgroupSupportedOperations.clustered" ||
+         name == "SubgroupSupportedOperations.quad" ||
+         name == "SubgroupSupportedStages.vertex" ||
+         name == "SubgroupSupportedStages.tessellationControl" ||
+         name == "SubgroupSupportedStages.tessellationEvaluation" ||
+         name == "SubgroupSupportedStages.geometry" ||
+         name == "SubgroupSupportedStages.fragment" ||
+         name == "SubgroupSupportedStages.compute" ||
+         name == "IndexTypeUint8Features.indexTypeUint8" ||
+         name ==
+             "ShaderSubgroupExtendedTypesFeatures"
+             ".shaderSubgroupExtendedTypes" ||
+         name == "RayTracingPipelineFeaturesKHR.rayTracingPipeline" ||
+         name == "AccelerationStructureFeaturesKHR.accelerationStructure" ||
+         name == "BufferDeviceAddressFeatures.bufferDeviceAddress";
+}
+
+bool Script::IsKnownProperty(const std::string& name) const {
+  return name ==
+             "FloatControlsProperties.shaderSignedZeroInfNanPreserveFloat16" ||
+         name ==
+             "FloatControlsProperties.shaderSignedZeroInfNanPreserveFloat32" ||
+         name ==
+             "FloatControlsProperties.shaderSignedZeroInfNanPreserveFloat64" ||
+         name == "FloatControlsProperties.shaderDenormPreserveFloat16" ||
+         name == "FloatControlsProperties.shaderDenormPreserveFloat32" ||
+         name == "FloatControlsProperties.shaderDenormPreserveFloat64" ||
+         name == "FloatControlsProperties.shaderDenormFlushToZeroFloat16" ||
+         name == "FloatControlsProperties.shaderDenormFlushToZeroFloat32" ||
+         name == "FloatControlsProperties.shaderDenormFlushToZeroFloat64" ||
+         name == "FloatControlsProperties.shaderRoundingModeRTEFloat16" ||
+         name == "FloatControlsProperties.shaderRoundingModeRTEFloat32" ||
+         name == "FloatControlsProperties.shaderRoundingModeRTEFloat64" ||
+         name == "FloatControlsProperties.shaderRoundingModeRTZFloat16" ||
+         name == "FloatControlsProperties.shaderRoundingModeRTZFloat32" ||
+         name == "FloatControlsProperties.shaderRoundingModeRTZFloat64";
+}
+
+type::Type* Script::ParseType(const std::string& str) {
+  auto type = GetType(str);
+  if (type)
+    return type;
+
+  TypeParser parser;
+  auto new_type = parser.Parse(str);
+  if (new_type != nullptr) {
+    type = new_type.get();
+    RegisterType(std::move(new_type));
+  }
+  return type;
 }
 
 }  // namespace amber

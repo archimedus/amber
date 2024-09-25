@@ -19,12 +19,16 @@ set(AMBER_SOURCES
     config_helper.cc
     log.cc
     ppm.cc
-    png.cc
     timestamp.cc
     ${CMAKE_BINARY_DIR}/src/build-versions.h.fake
 )
 
-set(AMBER_EXTRA_LIBS "lodepng")
+set(AMBER_EXTRA_LIBS "")
+
+if (${AMBER_ENABLE_LODEPNG})
+  set(AMBER_SOURCES ${AMBER_SOURCES} png.cc)
+  list(APPEND AMBER_EXTRA_LIBS "lodepng")
+endif()
 
 if (${Vulkan_FOUND})
   set(AMBER_SOURCES ${AMBER_SOURCES} config_helper_vulkan.cc)
@@ -45,6 +49,7 @@ endif()
 
 add_executable(amber ${AMBER_SOURCES})
 target_include_directories(amber PRIVATE "${CMAKE_BINARY_DIR}")
+
 set_target_properties(amber PROPERTIES OUTPUT_NAME "amber")
 target_link_libraries(amber libamber ${AMBER_EXTRA_LIBS})
 amber_default_compile_options(amber)
@@ -52,7 +57,7 @@ amber_default_compile_options(amber)
 add_custom_command(
     OUTPUT ${CMAKE_BINARY_DIR}/src/build-versions.h.fake
     COMMAND
-      ${PYTHON_EXECUTABLE}
+        ${Python3_EXECUTABLE}
         ${PROJECT_SOURCE_DIR}/tools/update_build_version.py
         ${CMAKE_BINARY_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}
@@ -60,3 +65,20 @@ add_custom_command(
     WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
     COMMENT "Update build-versions.h in the build directory"
 )
+
+set(IMAGE_DIFF_SOURCES
+    image_diff.cc
+)
+add_executable(image_diff ${IMAGE_DIFF_SOURCES})
+target_include_directories(image_diff PRIVATE "${CMAKE_BINARY_DIR}")
+target_link_libraries(image_diff libamber "lodepng")
+amber_default_compile_options(image_diff)
+set_target_properties(image_diff PROPERTIES OUTPUT_NAME "image_diff")
+
+if (ANDROID)
+  add_library(amber_ndk SHARED android_helper.cc ${AMBER_SOURCES})
+  target_include_directories(amber_ndk PRIVATE "${CMAKE_BINARY_DIR}")
+  target_link_libraries(amber_ndk libamber ${AMBER_EXTRA_LIBS})
+  amber_default_compile_options(amber_ndk)
+  target_compile_definitions(amber_ndk PRIVATE AMBER_ANDROID_MAIN=1)
+endif()

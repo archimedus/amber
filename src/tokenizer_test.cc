@@ -14,6 +14,7 @@
 
 #include "src/tokenizer.h"
 
+#include <cmath>
 #include <limits>
 
 #include "gtest/gtest.h"
@@ -29,12 +30,12 @@ TEST_F(TokenizerTest, ProcessEmpty) {
   EXPECT_TRUE(next->IsEOS());
 }
 
-TEST_F(TokenizerTest, ProcessString) {
-  Tokenizer t("TestString");
+TEST_F(TokenizerTest, ProcessIdentifier) {
+  Tokenizer t("TestIdentifier");
   auto next = t.NextToken();
   ASSERT_TRUE(next != nullptr);
-  EXPECT_TRUE(next->IsString());
-  EXPECT_EQ("TestString", next->AsString());
+  EXPECT_TRUE(next->IsIdentifier());
+  EXPECT_EQ("TestIdentifier", next->AsString());
 
   next = t.NextToken();
   ASSERT_TRUE(next != nullptr);
@@ -77,6 +78,33 @@ TEST_F(TokenizerTest, ProcessDouble) {
   EXPECT_TRUE(next->IsEOS());
 }
 
+namespace {
+
+void TestNaN(const std::string& nan_str) {
+  Tokenizer t(nan_str);
+  auto next = t.NextToken();
+  ASSERT_TRUE(next != nullptr);
+  EXPECT_TRUE(next->IsDouble());
+  EXPECT_TRUE(std::isnan(next->AsDouble()));
+
+  next = t.NextToken();
+  ASSERT_TRUE(next != nullptr);
+  EXPECT_TRUE(next->IsEOS());
+}
+
+}  // namespace
+
+TEST_F(TokenizerTest, ProcessNaN) {
+  TestNaN("nan");
+  TestNaN("naN");
+  TestNaN("nAn");
+  TestNaN("nAN");
+  TestNaN("Nan");
+  TestNaN("NaN");
+  TestNaN("NAn");
+  TestNaN("NAN");
+}
+
 TEST_F(TokenizerTest, ProcessNegativeDouble) {
   Tokenizer t("-123.456");
   auto next = t.NextToken();
@@ -105,7 +133,7 @@ TEST_F(TokenizerTest, ProcessStringWithNumberInName) {
   Tokenizer t("BufferAccess32");
   auto next = t.NextToken();
   ASSERT_TRUE(next != nullptr);
-  EXPECT_TRUE(next->IsString());
+  EXPECT_TRUE(next->IsIdentifier());
   EXPECT_EQ("BufferAccess32", next->AsString());
 
   next = t.NextToken();
@@ -117,7 +145,7 @@ TEST_F(TokenizerTest, ProcessMultiStatement) {
   Tokenizer t("TestValue 123.456");
   auto next = t.NextToken();
   ASSERT_TRUE(next != nullptr);
-  EXPECT_TRUE(next->IsString());
+  EXPECT_TRUE(next->IsIdentifier());
   EXPECT_EQ("TestValue", next->AsString());
 
   next = t.NextToken();
@@ -134,7 +162,7 @@ TEST_F(TokenizerTest, ProcessMultiLineStatement) {
   Tokenizer t("TestValue 123.456\nAnotherValue\n\nThirdValue 456");
   auto next = t.NextToken();
   ASSERT_TRUE(next != nullptr);
-  EXPECT_TRUE(next->IsString());
+  EXPECT_TRUE(next->IsIdentifier());
   EXPECT_EQ("TestValue", next->AsString());
   EXPECT_EQ(1U, t.GetCurrentLine());
 
@@ -150,7 +178,7 @@ TEST_F(TokenizerTest, ProcessMultiLineStatement) {
 
   next = t.NextToken();
   ASSERT_TRUE(next != nullptr);
-  EXPECT_TRUE(next->IsString());
+  EXPECT_TRUE(next->IsIdentifier());
   EXPECT_EQ("AnotherValue", next->AsString());
   EXPECT_EQ(2U, t.GetCurrentLine());
 
@@ -164,7 +192,7 @@ TEST_F(TokenizerTest, ProcessMultiLineStatement) {
 
   next = t.NextToken();
   ASSERT_TRUE(next != nullptr);
-  EXPECT_TRUE(next->IsString());
+  EXPECT_TRUE(next->IsIdentifier());
   EXPECT_EQ("ThirdValue", next->AsString());
   EXPECT_EQ(4U, t.GetCurrentLine());
 
@@ -193,7 +221,7 @@ ThirdValue 456)");
 
   next = t.NextToken();
   ASSERT_TRUE(next != nullptr);
-  EXPECT_TRUE(next->IsString());
+  EXPECT_TRUE(next->IsIdentifier());
   EXPECT_EQ("TestValue", next->AsString());
 
   next = t.NextToken();
@@ -207,7 +235,7 @@ ThirdValue 456)");
 
   next = t.NextToken();
   ASSERT_TRUE(next != nullptr);
-  EXPECT_TRUE(next->IsString());
+  EXPECT_TRUE(next->IsIdentifier());
   EXPECT_EQ("AnotherValue", next->AsString());
 
   next = t.NextToken();
@@ -220,7 +248,7 @@ ThirdValue 456)");
 
   next = t.NextToken();
   ASSERT_TRUE(next != nullptr);
-  EXPECT_TRUE(next->IsString());
+  EXPECT_TRUE(next->IsIdentifier());
   EXPECT_EQ("ThirdValue", next->AsString());
 
   next = t.NextToken();
@@ -266,8 +294,58 @@ TEST_F(TokenizerTest, StringStartingWithNum) {
 
   next = t.NextToken();
   ASSERT_TRUE(next != nullptr);
-  EXPECT_TRUE(next->IsString());
+  EXPECT_TRUE(next->IsIdentifier());
   EXPECT_EQ("/ABC", next->AsString());
+}
+
+TEST_F(TokenizerTest, StringQuotedSingleLine) {
+  Tokenizer t("\"Hello world\"");
+  auto next = t.NextToken();
+  ASSERT_TRUE(next != nullptr);
+  EXPECT_TRUE(next->IsString());
+  EXPECT_EQ("Hello world", next->AsString());
+
+  next = t.NextToken();
+  ASSERT_TRUE(next != nullptr);
+  EXPECT_TRUE(next->IsEOS());
+}
+
+TEST_F(TokenizerTest, StringQuotedMultiLine) {
+  Tokenizer t("\"Hello\n\nworld\"");
+  auto next = t.NextToken();
+  ASSERT_TRUE(next != nullptr);
+  EXPECT_TRUE(next->IsString());
+  EXPECT_EQ("Hello\n\nworld", next->AsString());
+
+  next = t.NextToken();
+  ASSERT_TRUE(next != nullptr);
+  EXPECT_TRUE(next->IsEOS());
+}
+
+TEST_F(TokenizerTest, StringQuotedUnterminated) {
+  Tokenizer t("\"Hello\n\nworld");
+  auto next = t.NextToken();
+  ASSERT_TRUE(next != nullptr);
+  EXPECT_TRUE(next->IsString());
+  EXPECT_EQ("Hello\n\nworld", next->AsString());
+
+  next = t.NextToken();
+  ASSERT_TRUE(next != nullptr);
+  EXPECT_TRUE(next->IsEOS());
+}
+
+TEST_F(TokenizerTest, StringQuotedEscapeSequences) {
+  Tokenizer t(R"("_\"\\_a\aa_b\bb_t\tt_n\nn_v\vv_f\ff_r\rr_")");
+  auto next = t.NextToken();
+  ASSERT_TRUE(next != nullptr);
+  EXPECT_TRUE(next->IsString());
+
+  std::string expect = "_\"\\_a\aa_b\bb_t\tt_n\nn_v\vv_f\ff_r\rr_";
+  EXPECT_EQ(expect, next->AsString());
+
+  next = t.NextToken();
+  ASSERT_TRUE(next != nullptr);
+  EXPECT_TRUE(next->IsEOS());
 }
 
 TEST_F(TokenizerTest, BracketsAndCommas) {
@@ -296,7 +374,7 @@ TEST_F(TokenizerTest, BracketsAndCommas) {
 
   next = t.NextToken();
   ASSERT_TRUE(next != nullptr);
-  EXPECT_TRUE(next->IsString());
+  EXPECT_TRUE(next->IsIdentifier());
   EXPECT_EQ("abc", next->AsString());
 
   next = t.NextToken();
@@ -334,7 +412,7 @@ TEST_F(TokenizerTest, DashToken) {
   Tokenizer t("-");
   auto next = t.NextToken();
   ASSERT_TRUE(next != nullptr);
-  ASSERT_TRUE(next->IsString());
+  ASSERT_TRUE(next->IsIdentifier());
   EXPECT_EQ("-", next->AsString());
 }
 
@@ -393,7 +471,7 @@ TEST_F(TokenizerTest, TokenToDoubleFromString) {
   Tokenizer t("INVALID");
   auto next = t.NextToken();
   ASSERT_TRUE(next != nullptr);
-  ASSERT_TRUE(next->IsString());
+  ASSERT_TRUE(next->IsIdentifier());
 
   Result r = next->ConvertToDouble();
   ASSERT_FALSE(r.IsSuccess());
@@ -440,13 +518,13 @@ TEST_F(TokenizerTest, Continuations) {
   ASSERT_TRUE(next != nullptr);
   ASSERT_TRUE(next->IsInteger());
   EXPECT_EQ(1, next->AsInt32());
-  EXPECT_EQ(1, t.GetCurrentLine());
+  EXPECT_EQ(1u, t.GetCurrentLine());
 
   next = t.NextToken();
   ASSERT_TRUE(next != nullptr);
   ASSERT_TRUE(next->IsInteger());
   EXPECT_EQ(2, next->AsInt32());
-  EXPECT_EQ(2, t.GetCurrentLine());
+  EXPECT_EQ(2u, t.GetCurrentLine());
 
   next = t.NextToken();
   ASSERT_TRUE(next != nullptr);
@@ -462,7 +540,7 @@ TEST_F(TokenizerTest, ContinuationAtEndOfString) {
 
   next = t.NextToken();
   ASSERT_TRUE(next != nullptr);
-  ASSERT_TRUE(next->IsString());
+  ASSERT_TRUE(next->IsIdentifier());
   EXPECT_EQ("\\", next->AsString());
 
   next = t.NextToken();
@@ -479,7 +557,7 @@ TEST_F(TokenizerTest, ContinuationTokenAtOfLine) {
 
   next = t.NextToken();
   ASSERT_TRUE(next != nullptr);
-  ASSERT_TRUE(next->IsString());
+  ASSERT_TRUE(next->IsIdentifier());
   EXPECT_EQ("\\2", next->AsString());
 
   next = t.NextToken();
@@ -496,13 +574,13 @@ TEST_F(TokenizerTest, ContinuationTokenInMiddleOfLine) {
 
   next = t.NextToken();
   ASSERT_TRUE(next != nullptr);
-  ASSERT_TRUE(next->IsString());
+  ASSERT_TRUE(next->IsIdentifier());
   EXPECT_EQ("\\", next->AsString());
 
   next = t.NextToken();
   ASSERT_TRUE(next != nullptr);
   ASSERT_TRUE(next->IsInteger());
-  EXPECT_EQ(2U, next->AsInt32());
+  EXPECT_EQ(2u, next->AsInt32());
 
   next = t.NextToken();
   ASSERT_TRUE(next != nullptr);
@@ -513,14 +591,14 @@ TEST_F(TokenizerTest, ExtractToNext) {
   Tokenizer t("this\nis\na\ntest\nEND");
 
   auto next = t.NextToken();
-  EXPECT_TRUE(next->IsString());
+  EXPECT_TRUE(next->IsIdentifier());
   EXPECT_EQ("this", next->AsString());
 
   std::string s = t.ExtractToNext("END");
   ASSERT_EQ("\nis\na\ntest\n", s);
 
   next = t.NextToken();
-  EXPECT_TRUE(next->IsString());
+  EXPECT_TRUE(next->IsIdentifier());
   EXPECT_EQ("END", next->AsString());
   EXPECT_EQ(5U, t.GetCurrentLine());
 
@@ -532,7 +610,7 @@ TEST_F(TokenizerTest, ExtractToNextMissingNext) {
   Tokenizer t("this\nis\na\ntest\n");
 
   auto next = t.NextToken();
-  EXPECT_TRUE(next->IsString());
+  EXPECT_TRUE(next->IsIdentifier());
   EXPECT_EQ("this", next->AsString());
 
   std::string s = t.ExtractToNext("END");
@@ -549,7 +627,7 @@ TEST_F(TokenizerTest, ExtractToNextCurrentIsNext) {
   ASSERT_EQ("", s);
 
   auto next = t.NextToken();
-  EXPECT_TRUE(next->IsString());
+  EXPECT_TRUE(next->IsIdentifier());
   EXPECT_EQ("END", next->AsString());
 
   next = t.NextToken();

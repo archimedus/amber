@@ -1,4 +1,5 @@
 // Copyright 2018 The Amber Authors.
+// Copyright (C) 2024 Advanced Micro Devices, Inc. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -27,6 +28,7 @@
 namespace amber {
 
 class Tokenizer;
+class Token;
 
 namespace amberscript {
 
@@ -34,6 +36,7 @@ namespace amberscript {
 class Parser : public amber::Parser {
  public:
   Parser();
+  explicit Parser(Delegate* delegate);
   ~Parser() override;
 
   // amber::Parser
@@ -49,31 +52,46 @@ class Parser : public amber::Parser {
   Result ToShaderType(const std::string& str, ShaderType* type);
   Result ToBufferType(const std::string& str, BufferType* type);
   Result ToShaderFormat(const std::string& str, ShaderFormat* fmt);
-  Result ToDatumType(const std::string& str, DatumType* type);
   Result ToPipelineType(const std::string& str, PipelineType* type);
   Result ValidateEndOfStatement(const std::string& name);
 
+  Result ParseStruct();
   Result ParseBuffer();
+  Result ParseImage();
   Result ParseBufferInitializer(Buffer*);
   Result ParseBufferInitializerSize(Buffer*);
   Result ParseBufferInitializerFill(Buffer*, uint32_t);
   Result ParseBufferInitializerSeries(Buffer*, uint32_t);
   Result ParseBufferInitializerData(Buffer*);
+  Result ParseBufferInitializerFile(Buffer*);
   Result ParseShaderBlock();
   Result ParsePipelineBlock();
   Result ParsePipelineAttach(Pipeline*);
   Result ParsePipelineShaderOptimizations(Pipeline*);
+  Result ParsePipelineShaderCompileOptions(Pipeline*);
+  Result ParsePipelineSubgroup(Pipeline* pipeline);
+  Result ParsePipelinePatchControlPoints(Pipeline* pipeline);
   Result ParsePipelineFramebufferSize(Pipeline*);
+  Result ParsePipelineViewport(Pipeline*);
   Result ParsePipelineBind(Pipeline*);
   Result ParsePipelineVertexData(Pipeline*);
   Result ParsePipelineIndexData(Pipeline*);
+  Result ParsePipelineSet(Pipeline*);
+  Result ParsePipelinePolygonMode(Pipeline*);
+  Result ParsePipelineDepth(Pipeline* pipeline);
+  Result ParsePipelineStencil(Pipeline* pipeline);
+  Result ParsePipelineBlend(Pipeline* pipeline);
+  Result ParsePipelineShaderGroup(Pipeline* pipeline);
   Result ParseRun();
   Result ParseClear();
   Result ParseClearColor();
+  Result ParseClearDepth();
+  Result ParseClearStencil();
   Result ParseExpect();
   Result ParseCopy();
   Result ParseDeviceFeature();
   Result ParseDeviceExtension();
+  Result ParseDeviceProperty();
   Result ParseInstanceExtension();
   Result ParseRepeat();
   Result ParseSet();
@@ -83,6 +101,24 @@ class Parser : public amber::Parser {
   Result ParsePipelineBody(const std::string& cmd_name,
                            std::unique_ptr<Pipeline> pipeline);
   Result ParseShaderSpecialization(Pipeline* pipeline);
+  Result ParseSampler();
+  bool IsRayTracingShader(ShaderType type);
+  Result ParseAS();
+  Result ParseBLAS();
+  Result ParseBLASTriangle(BLAS* blas);
+  Result ParseBLASAABB(BLAS* blas);
+  Result ParseGeometryFlags(uint32_t* flags);
+  Result ParseTLAS();
+  Result ParseBLASInstance(TLAS* tlas);
+  Result ParseBLASInstanceTransform(BLASInstance* instance);
+  Result ParseBLASInstanceFlags(BLASInstance* instance);
+  Result ParseSBT(Pipeline* pipeline);
+  Result ParseMaxRayPayloadSize(Pipeline* pipeline);
+  Result ParseMaxRayHitAttributeSize(Pipeline* pipeline);
+  Result ParseMaxRayRecursionDepth(Pipeline* pipeline);
+  Result ParseFlags(Pipeline* pipeline);
+  Result ParseUseLibrary(Pipeline* pipeline);
+  Result ParseTolerances(std::vector<Probe::Tolerance>* tolerances);
 
   /// Parses a set of values out of the token stream. |name| is the name of the
   /// current command we're parsing for error purposes. The |type| is the type
@@ -91,6 +127,8 @@ class Parser : public amber::Parser {
   Result ParseValues(const std::string& name,
                      Format* fmt,
                      std::vector<Value>* values);
+
+  Result ParseVirtualFile();
 
   std::unique_ptr<Tokenizer> tokenizer_;
   std::vector<std::unique_ptr<Command>> command_list_;

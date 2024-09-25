@@ -1,4 +1,5 @@
 // Copyright 2018 The Amber Authors.
+// Copyright (C) 2024 Advanced Micro Devices, Inc. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +16,7 @@
 #include "src/executor.h"
 
 #include <cassert>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -30,14 +32,20 @@ Executor::Executor() = default;
 Executor::~Executor() = default;
 
 Result Executor::CompileShaders(const amber::Script* script,
-                                const ShaderMap& shader_map) {
+                                const ShaderMap& shader_map,
+                                Options* options) {
   for (auto& pipeline : script->GetPipelines()) {
     for (auto& shader_info : pipeline->GetShaders()) {
-      ShaderCompiler sc(script->GetSpvTargetEnv());
+      std::string target_env = shader_info.GetShader()->GetTargetEnv();
+      if (target_env.empty())
+        target_env = script->GetSpvTargetEnv();
+
+      ShaderCompiler sc(target_env, options->disable_spirv_validation,
+                        script->GetVirtualFiles());
 
       Result r;
       std::vector<uint32_t> data;
-      std::tie(r, data) = sc.Compile(shader_info.GetShader(), shader_map);
+      std::tie(r, data) = sc.Compile(pipeline.get(), &shader_info, shader_map);
       if (!r.IsSuccess())
         return r;
 
@@ -49,15 +57,31 @@ Result Executor::CompileShaders(const amber::Script* script,
 
 Result Executor::Execute(Engine* engine,
                          const amber::Script* script,
-                         Delegate* delegate,
                          const ShaderMap& shader_map,
-                         ExecutionType executionType) {
+                         Options* options,
+                         Delegate* delegate) {
   engine->SetEngineData(script->GetEngineData());
 
   if (!script->GetPipelines().empty()) {
-    Result r = CompileShaders(script, shader_map);
+    Result r = CompileShaders(script, shader_map, options);
     if (!r.IsSuccess())
       return r;
+
+    // OpenCL specific pipeline updates.
+    for (auto& pipeline : script->GetPipelines()) {
+      r = pipeline->UpdateOpenCLBufferBindings();
+      if (!r.IsSuccess())
+        return r;
+      r = pipeline->GenerateOpenCLPodBuffers();
+      if (!r.IsSuccess())
+        return r;
+      r = pipeline->GenerateOpenCLLiteralSamplers();
+      if (!r.IsSuccess())
+        return r;
+      r = pipeline->GenerateOpenCLPushConstants();
+      if (!r.IsSuccess())
+        return r;
+    }
 
     for (auto& pipeline : script->GetPipelines()) {
       r = engine->CreatePipeline(pipeline.get());
@@ -66,13 +90,14 @@ Result Executor::Execute(Engine* engine,
     }
   }
 
-  if (executionType == ExecutionType::kPipelineCreateOnly)
+  if (options->execution_type == ExecutionType::kPipelineCreateOnly)
     return {};
 
   // Process Commands
   for (const auto& cmd : script->GetCommands()) {
-    if (delegate && delegate->LogExecuteCalls())
+    if (delegate && delegate->LogExecuteCalls()) {
       delegate->Log(std::to_string(cmd->GetLine()) + ": " + cmd->ToString());
+    }
 
     Result r = ExecuteCommand(engine, cmd.get());
     if (!r.IsSuccess())
@@ -87,7 +112,7 @@ Result Executor::ExecuteCommand(Engine* engine, Command* cmd) {
     assert(buffer);
 
     Format* fmt = buffer->GetFormat();
-    return verifier_.Probe(cmd->AsProbe(), fmt, buffer->GetTexelStride(),
+    return verifier_.Probe(cmd->AsProbe(), fmt, buffer->GetElementStride(),
                            buffer->GetRowStride(), buffer->GetWidth(),
                            buffer->GetHeight(), buffer->ValuePtr()->data());
   }
@@ -112,7 +137,14 @@ Result Executor::ExecuteCommand(Engine* engine, Command* cmd) {
     auto compare = cmd->AsCompareBuffer();
     auto buffer_1 = compare->GetBuffer1();
     auto buffer_2 = compare->GetBuffer2();
-    return buffer_1->IsEqual(buffer_2);
+    switch (compare->GetComparator()) {
+      case CompareBufferCommand::Comparator::kRmse:
+        return buffer_1->CompareRMSE(buffer_2, compare->GetTolerance());
+      case CompareBufferCommand::Comparator::kHistogramEmd:
+        return buffer_1->CompareHistogramEMD(buffer_2, compare->GetTolerance());
+      case CompareBufferCommand::Comparator::kEq:
+        return buffer_1->IsEqual(buffer_2);
+    }
   }
   if (cmd->IsCopy()) {
     auto copy = cmd->AsCopy();
@@ -122,10 +154,14 @@ Result Executor::ExecuteCommand(Engine* engine, Command* cmd) {
   }
   if (cmd->IsDrawRect())
     return engine->DoDrawRect(cmd->AsDrawRect());
+  if (cmd->IsDrawGrid())
+    return engine->DoDrawGrid(cmd->AsDrawGrid());
   if (cmd->IsDrawArrays())
     return engine->DoDrawArrays(cmd->AsDrawArrays());
   if (cmd->IsCompute())
     return engine->DoCompute(cmd->AsCompute());
+  if (cmd->IsRayTracing())
+    return engine->DoTraceRays(cmd->AsRayTracing());
   if (cmd->IsEntryPoint())
     return engine->DoEntryPoint(cmd->AsEntryPoint());
   if (cmd->IsPatchParameterVertices())

@@ -172,7 +172,7 @@ EXPECT my_fb 0 0 SIZE 250 250 EQ_RGB 0 128 255)";
   Parser parser;
   Result r = parser.Parse(in);
   ASSERT_FALSE(r.IsSuccess());
-  EXPECT_EQ("15: Invalid comparator in EXPECT command", r.Error());
+  EXPECT_EQ("15: invalid comparator in EXPECT command", r.Error());
 }
 
 TEST_F(AmberScriptParserTest, ExpectMissingIDXValues) {
@@ -609,7 +609,7 @@ EXPECT my_fb IDX 0 0 SIZE 250 250 EQ_RGB 0 128 255 EXTRA)";
   Parser parser;
   Result r = parser.Parse(in);
   ASSERT_FALSE(r.IsSuccess());
-  EXPECT_EQ("15: extra parameters after EXPECT command", r.Error());
+  EXPECT_EQ("15: extra parameters after EXPECT command: EXTRA", r.Error());
 }
 
 TEST_F(AmberScriptParserTest, ExpectRGBAExtraParam) {
@@ -632,7 +632,7 @@ EXPECT my_fb IDX 0 0 SIZE 250 250 EQ_RGBA 0 128 255 99 EXTRA)";
   Parser parser;
   Result r = parser.Parse(in);
   ASSERT_FALSE(r.IsSuccess());
-  EXPECT_EQ("15: extra parameters after EXPECT command", r.Error());
+  EXPECT_EQ("15: extra parameters after EXPECT command: EXTRA", r.Error());
 }
 
 TEST_F(AmberScriptParserTest, ExpectEQ) {
@@ -656,7 +656,45 @@ EXPECT orig_buf IDX 5 EQ 11)";
   EXPECT_EQ(5U, probe->GetOffset());
   EXPECT_TRUE(probe->GetFormat()->IsInt32());
   ASSERT_EQ(1U, probe->GetValues().size());
-  EXPECT_EQ(11U, probe->GetValues()[0].AsInt32());
+  EXPECT_EQ(11, probe->GetValues()[0].AsInt32());
+}
+
+TEST_F(AmberScriptParserTest, ExpectEQStruct) {
+  std::string in = R"(
+STRUCT data
+  float a
+  int32 b
+END
+
+BUFFER orig_buf DATA_TYPE data DATA 2.3 44 4.4 99 END
+EXPECT orig_buf IDX 0 EQ 2.3 44
+EXPECT orig_buf IDX 8 EQ 2.3 44)";
+
+  Parser parser;
+  Result r = parser.Parse(in);
+  ASSERT_TRUE(r.IsSuccess()) << r.Error();
+
+  auto script = parser.GetScript();
+  const auto& commands = script->GetCommands();
+  ASSERT_EQ(2U, commands.size());
+
+  auto* cmd = commands[0].get();
+  ASSERT_TRUE(cmd->IsProbeSSBO());
+
+  auto* probe = cmd->AsProbeSSBO();
+  EXPECT_EQ(ProbeSSBOCommand::Comparator::kEqual, probe->GetComparator());
+  ASSERT_EQ(2U, probe->GetValues().size());
+  EXPECT_EQ(2.3f, probe->GetValues()[0].AsFloat());
+  EXPECT_EQ(44, probe->GetValues()[1].AsInt32());
+
+  cmd = commands[1].get();
+  ASSERT_TRUE(cmd->IsProbeSSBO());
+
+  probe = cmd->AsProbeSSBO();
+  EXPECT_EQ(ProbeSSBOCommand::Comparator::kEqual, probe->GetComparator());
+  ASSERT_EQ(2U, probe->GetValues().size());
+  EXPECT_EQ(2.3f, probe->GetValues()[0].AsFloat());
+  EXPECT_EQ(44, probe->GetValues()[1].AsInt32());
 }
 
 TEST_F(AmberScriptParserTest, ExpectEqMissingValue) {
@@ -687,8 +725,7 @@ BUFFER orig_buf DATA_TYPE int32 SIZE 100 FILL 11
 BUFFER dest_buf DATA_TYPE int32 SIZE 100 FILL 22
 
 EXPECT orig_buf IDX 0 EQ 11
-EXPECT dest_buf IDX 0 EQ 22
-)";
+EXPECT dest_buf IDX 0 EQ 22)";
 
   Parser parser;
   Result r = parser.Parse(in);
@@ -699,69 +736,74 @@ TEST_F(AmberScriptParserTest, ExpectEqBuffer) {
   std::string in = R"(
 BUFFER buf_1 DATA_TYPE int32 SIZE 10 FILL 11
 BUFFER buf_2 DATA_TYPE int32 SIZE 10 FILL 11
-
-EXPECT buf_1 EQ_BUFFER buf_2
-)";
+EXPECT buf_1 EQ_BUFFER buf_2)";
 
   Parser parser;
   Result r = parser.Parse(in);
   ASSERT_TRUE(r.IsSuccess()) << r.Error();
+
+  auto script = parser.GetScript();
+  const auto& commands = script->GetCommands();
+  ASSERT_EQ(1U, commands.size());
+
+  auto* cmd = commands[0].get();
+  ASSERT_TRUE(cmd->IsCompareBuffer());
+
+  auto* cmp = cmd->AsCompareBuffer();
+  EXPECT_EQ(cmp->GetComparator(), CompareBufferCommand::Comparator::kEq);
+
+  ASSERT_TRUE(cmp->GetBuffer1() != nullptr);
+  EXPECT_EQ(cmp->GetBuffer1()->GetName(), "buf_1");
+
+  ASSERT_TRUE(cmp->GetBuffer2() != nullptr);
+  EXPECT_EQ(cmp->GetBuffer2()->GetName(), "buf_2");
 }
 
 TEST_F(AmberScriptParserTest, ExpectEqBufferMissingFirstBuffer) {
   std::string in = R"(
 BUFFER buf_2 DATA_TYPE int32 SIZE 10 FILL 22
-
-EXPECT EQ_BUFFER buf_2
-)";
+EXPECT EQ_BUFFER buf_2)";
 
   Parser parser;
   Result r = parser.Parse(in);
   ASSERT_FALSE(r.IsSuccess());
-  EXPECT_EQ("4: missing buffer name between EXPECT and EQ_BUFFER", r.Error());
+  EXPECT_EQ("3: missing buffer name between EXPECT and EQ_BUFFER", r.Error());
 }
 
 TEST_F(AmberScriptParserTest, ExpectEqBufferMissingSecondBuffer) {
   std::string in = R"(
 BUFFER buf_1 DATA_TYPE int32 SIZE 10 FILL 11
-
-EXPECT buf_1 EQ_BUFFER
-)";
+EXPECT buf_1 EQ_BUFFER)";
 
   Parser parser;
   Result r = parser.Parse(in);
   ASSERT_FALSE(r.IsSuccess());
-  EXPECT_EQ("5: invalid buffer name in EXPECT EQ_BUFFER command", r.Error());
+  EXPECT_EQ("3: invalid buffer name in EXPECT EQ_BUFFER command", r.Error());
 }
 
 TEST_F(AmberScriptParserTest, ExpectEqBufferInvalidFirstBuffer) {
-  std::string in = R"(
-EXPECT 123 EQ_BUFFER
-)";
+  std::string in = R"(EXPECT 123 EQ_BUFFER)";
 
   Parser parser;
   Result r = parser.Parse(in);
   ASSERT_FALSE(r.IsSuccess());
-  EXPECT_EQ("2: invalid buffer name in EXPECT command", r.Error());
+  EXPECT_EQ("1: invalid buffer name in EXPECT command", r.Error());
 }
 
 TEST_F(AmberScriptParserTest, ExpectEqBufferUnknownFirstBuffer) {
-  std::string in = R"(
-EXPECT unknown_buffer EQ_BUFFER
-)";
+  std::string in = R"(EXPECT unknown_buffer EQ_BUFFER)";
 
   Parser parser;
   Result r = parser.Parse(in);
   ASSERT_FALSE(r.IsSuccess());
-  EXPECT_EQ("2: unknown buffer name for EXPECT command: unknown_buffer",
+  EXPECT_EQ("1: unknown buffer name for EXPECT command: unknown_buffer",
             r.Error());
 }
 
 TEST_F(AmberScriptParserTest, ExpectEqBufferInvalidSecondBuffer) {
   std::string in = R"(
 BUFFER buf DATA_TYPE int32 SIZE 10 FILL 11
-EXPECT buf EQ_BUFFER 123
-)";
+EXPECT buf EQ_BUFFER 123)";
 
   Parser parser;
   Result r = parser.Parse(in);
@@ -772,8 +814,7 @@ EXPECT buf EQ_BUFFER 123
 TEST_F(AmberScriptParserTest, ExpectEqBufferUnknownSecondBuffer) {
   std::string in = R"(
 BUFFER buf DATA_TYPE int32 SIZE 10 FILL 11
-EXPECT buf EQ_BUFFER unknown_buffer
-)";
+EXPECT buf EQ_BUFFER unknown_buffer)";
 
   Parser parser;
   Result r = parser.Parse(in);
@@ -787,15 +828,13 @@ TEST_F(AmberScriptParserTest, ExpectEqBufferDifferentSize) {
   std::string in = R"(
 BUFFER buf_1 DATA_TYPE int32 SIZE 10 FILL 11
 BUFFER buf_2 DATA_TYPE int32 SIZE 99 FILL 11
-
-EXPECT buf_1 EQ_BUFFER buf_2
-)";
+EXPECT buf_1 EQ_BUFFER buf_2)";
 
   Parser parser;
   Result r = parser.Parse(in);
   ASSERT_FALSE(r.IsSuccess());
   EXPECT_EQ(
-      "5: EXPECT EQ_BUFFER command cannot compare buffers of different size: "
+      "4: EXPECT EQ_BUFFER command cannot compare buffers of different size: "
       "10 vs 99",
       r.Error());
 }
@@ -804,15 +843,13 @@ TEST_F(AmberScriptParserTest, ExpectEqBufferDifferentType) {
   std::string in = R"(
 BUFFER buf_1 DATA_TYPE int32 SIZE 10 FILL 11
 BUFFER buf_2 FORMAT R32G32B32A32_SFLOAT
-
-EXPECT buf_1 EQ_BUFFER buf_2
-)";
+EXPECT buf_1 EQ_BUFFER buf_2)";
 
   Parser parser;
   Result r = parser.Parse(in);
   ASSERT_FALSE(r.IsSuccess());
   EXPECT_EQ(
-      "5: EXPECT EQ_BUFFER command cannot compare buffers of differing format",
+      "4: EXPECT EQ_BUFFER command cannot compare buffers of differing format",
       r.Error());
 }
 
@@ -837,7 +874,7 @@ EXPECT orig_buf IDX 5 TOLERANCE 1 EQ 11)";
   EXPECT_EQ(5U, probe->GetOffset());
   EXPECT_TRUE(probe->GetFormat()->IsInt32());
   ASSERT_EQ(1U, probe->GetValues().size());
-  EXPECT_EQ(11U, probe->GetValues()[0].AsInt32());
+  EXPECT_EQ(11, probe->GetValues()[0].AsInt32());
   EXPECT_TRUE(probe->HasTolerances());
 
   auto& tolerances = probe->GetTolerances();
@@ -867,7 +904,7 @@ EXPECT orig_buf IDX 5 TOLERANCE 1% EQ 11)";
   EXPECT_EQ(5U, probe->GetOffset());
   EXPECT_TRUE(probe->GetFormat()->IsInt32());
   ASSERT_EQ(1U, probe->GetValues().size());
-  EXPECT_EQ(11U, probe->GetValues()[0].AsInt32());
+  EXPECT_EQ(11, probe->GetValues()[0].AsInt32());
   EXPECT_TRUE(probe->HasTolerances());
 
   auto& tolerances = probe->GetTolerances();
@@ -897,7 +934,7 @@ EXPECT orig_buf IDX 5 TOLERANCE 1% .2 3.7% 4 EQ 11)";
   EXPECT_EQ(5U, probe->GetOffset());
   EXPECT_TRUE(probe->GetFormat()->IsInt32());
   ASSERT_EQ(1U, probe->GetValues().size());
-  EXPECT_EQ(11U, probe->GetValues()[0].AsInt32());
+  EXPECT_EQ(11, probe->GetValues()[0].AsInt32());
 
   EXPECT_TRUE(probe->HasTolerances());
   auto& tolerances = probe->GetTolerances();
@@ -947,6 +984,352 @@ EXPECT orig_buf IDX 5 TOLERANCE 1 2 3 4 NE 11)";
   Result r = parser.Parse(in);
   ASSERT_FALSE(r.IsSuccess());
   EXPECT_EQ("3: TOLERANCE only available with EQ probes", r.Error());
+}
+
+TEST_F(AmberScriptParserTest, ExpectEqRgbaToleranceOneValue) {
+  std::string in = R"(
+BUFFER buf FORMAT R8G8B8A8_UNORM
+EXPECT buf IDX 80 80 SIZE 5 8 EQ_RGBA 128 0 128 255 TOLERANCE 3)";
+
+  Parser parser;
+  Result r = parser.Parse(in);
+  ASSERT_TRUE(r.IsSuccess()) << r.Error();
+
+  auto script = parser.GetScript();
+  const auto& commands = script->GetCommands();
+  ASSERT_EQ(1U, commands.size());
+
+  auto* cmd = commands[0].get();
+  ASSERT_TRUE(cmd->IsProbe());
+
+  auto* probe = cmd->AsProbe();
+  EXPECT_TRUE(probe->IsRGBA());
+  EXPECT_TRUE(probe->HasTolerances());
+
+  auto& tolerances = probe->GetTolerances();
+  ASSERT_EQ(1U, tolerances.size());
+
+  EXPECT_FALSE(tolerances[0].is_percent);
+  EXPECT_FLOAT_EQ(3.f, static_cast<float>(tolerances[0].value));
+}
+
+TEST_F(AmberScriptParserTest, ExpectEqRgbaToleranceMultiValue) {
+  std::string in = R"(
+BUFFER buf FORMAT R8G8B8A8_UNORM
+EXPECT buf IDX 80 80 SIZE 5 8 EQ_RGBA 128 0 128 255 TOLERANCE 5.2 2% 4 1.5)";
+
+  Parser parser;
+  Result r = parser.Parse(in);
+  ASSERT_TRUE(r.IsSuccess()) << r.Error();
+
+  auto script = parser.GetScript();
+  const auto& commands = script->GetCommands();
+  ASSERT_EQ(1U, commands.size());
+
+  auto* cmd = commands[0].get();
+  ASSERT_TRUE(cmd->IsProbe());
+
+  auto* probe = cmd->AsProbe();
+  EXPECT_TRUE(probe->IsRGBA());
+  EXPECT_TRUE(probe->HasTolerances());
+
+  auto& tolerances = probe->GetTolerances();
+  ASSERT_EQ(4U, tolerances.size());
+
+  EXPECT_FALSE(tolerances[0].is_percent);
+  EXPECT_FLOAT_EQ(5.2f, static_cast<float>(tolerances[0].value));
+
+  EXPECT_TRUE(tolerances[1].is_percent);
+  EXPECT_FLOAT_EQ(2.0f, static_cast<float>(tolerances[1].value));
+
+  EXPECT_FALSE(tolerances[2].is_percent);
+  EXPECT_FLOAT_EQ(4.0f, static_cast<float>(tolerances[2].value));
+
+  EXPECT_FALSE(tolerances[3].is_percent);
+  EXPECT_FLOAT_EQ(1.5f, static_cast<float>(tolerances[3].value));
+}
+
+TEST_F(AmberScriptParserTest, ExpectEqRgbaToleranceTooManyValues) {
+  std::string in = R"(
+BUFFER buf FORMAT R8G8B8A8_UNORM
+EXPECT buf IDX 80 80 SIZE 5 8 EQ_RGBA 128 0 128 255 TOLERANCE 5.2 2% 4 1.5 6)";
+
+  Parser parser;
+  Result r = parser.Parse(in);
+  ASSERT_FALSE(r.IsSuccess());
+  EXPECT_EQ("3: TOLERANCE for an RGBA comparison has a maximum of 4 values",
+            r.Error());
+}
+
+TEST_F(AmberScriptParserTest, ExpectEqRgbaToleranceExtraParameters) {
+  std::string in = R"(
+BUFFER buf FORMAT R8G8B8A8_UNORM
+EXPECT buf IDX 80 80 SIZE 5 8 EQ_RGBA 128 0 128 255 TOLERANCE 3 FOO)";
+
+  Parser parser;
+  Result r = parser.Parse(in);
+  ASSERT_FALSE(r.IsSuccess());
+  EXPECT_EQ("3: extra parameters after EXPECT command: FOO", r.Error());
+}
+
+TEST_F(AmberScriptParserTest, ExpectEqRgbToleranceOneValue) {
+  std::string in = R"(
+BUFFER buf FORMAT R8G8B8_UNORM
+EXPECT buf IDX 80 80 SIZE 5 8 EQ_RGB 128 0 128 TOLERANCE 3)";
+
+  Parser parser;
+  Result r = parser.Parse(in);
+  ASSERT_TRUE(r.IsSuccess()) << r.Error();
+
+  auto script = parser.GetScript();
+  const auto& commands = script->GetCommands();
+  ASSERT_EQ(1U, commands.size());
+
+  auto* cmd = commands[0].get();
+  ASSERT_TRUE(cmd->IsProbe());
+
+  auto* probe = cmd->AsProbe();
+  EXPECT_FALSE(probe->IsRGBA());
+  EXPECT_TRUE(probe->HasTolerances());
+
+  auto& tolerances = probe->GetTolerances();
+  ASSERT_EQ(1U, tolerances.size());
+
+  EXPECT_FALSE(tolerances[0].is_percent);
+  EXPECT_FLOAT_EQ(3.f, static_cast<float>(tolerances[0].value));
+}
+
+TEST_F(AmberScriptParserTest, ExpectEqRgbToleranceMultiValue) {
+  std::string in = R"(
+BUFFER buf FORMAT R8G8B8_UNORM
+EXPECT buf IDX 80 80 SIZE 5 8 EQ_RGB 128 0 128 TOLERANCE 5.2 2% 4)";
+
+  Parser parser;
+  Result r = parser.Parse(in);
+  ASSERT_TRUE(r.IsSuccess()) << r.Error();
+
+  auto script = parser.GetScript();
+  const auto& commands = script->GetCommands();
+  ASSERT_EQ(1U, commands.size());
+
+  auto* cmd = commands[0].get();
+  ASSERT_TRUE(cmd->IsProbe());
+
+  auto* probe = cmd->AsProbe();
+  EXPECT_FALSE(probe->IsRGBA());
+  EXPECT_TRUE(probe->HasTolerances());
+
+  auto& tolerances = probe->GetTolerances();
+  ASSERT_EQ(3U, tolerances.size());
+
+  EXPECT_FALSE(tolerances[0].is_percent);
+  EXPECT_FLOAT_EQ(5.2f, static_cast<float>(tolerances[0].value));
+
+  EXPECT_TRUE(tolerances[1].is_percent);
+  EXPECT_FLOAT_EQ(2.0f, static_cast<float>(tolerances[1].value));
+
+  EXPECT_FALSE(tolerances[2].is_percent);
+  EXPECT_FLOAT_EQ(4.0f, static_cast<float>(tolerances[2].value));
+}
+
+TEST_F(AmberScriptParserTest, ExpectEqRgbToleranceTooManyValues) {
+  std::string in = R"(
+BUFFER buf FORMAT R8G8B8_UNORM
+EXPECT buf IDX 80 80 SIZE 5 8 EQ_RGB 128 0 128 TOLERANCE 5.2 2% 4 1.5)";
+
+  Parser parser;
+  Result r = parser.Parse(in);
+  ASSERT_FALSE(r.IsSuccess());
+  EXPECT_EQ("3: TOLERANCE for an RGB comparison has a maximum of 3 values",
+            r.Error());
+}
+
+TEST_F(AmberScriptParserTest, ExpectEqRgbToleranceExtraParameters) {
+  std::string in = R"(
+BUFFER buf FORMAT R8G8B8_UNORM
+EXPECT buf IDX 80 80 SIZE 5 8 EQ_RGB 128 0 128 TOLERANCE 3 FOO)";
+
+  Parser parser;
+  Result r = parser.Parse(in);
+  ASSERT_FALSE(r.IsSuccess());
+  EXPECT_EQ("3: extra parameters after EXPECT command: FOO", r.Error());
+}
+
+TEST_F(AmberScriptParserTest, ExpectRMSEBuffer) {
+  std::string in = R"(
+BUFFER buf_1 DATA_TYPE int32 SIZE 10 FILL 11
+BUFFER buf_2 DATA_TYPE int32 SIZE 10 FILL 12
+EXPECT buf_1 RMSE_BUFFER buf_2 TOLERANCE 0.1)";
+
+  Parser parser;
+  Result r = parser.Parse(in);
+  ASSERT_TRUE(r.IsSuccess()) << r.Error();
+
+  auto script = parser.GetScript();
+  const auto& commands = script->GetCommands();
+  ASSERT_EQ(1U, commands.size());
+
+  auto* cmd = commands[0].get();
+  ASSERT_TRUE(cmd->IsCompareBuffer());
+
+  auto* cmp = cmd->AsCompareBuffer();
+  EXPECT_EQ(cmp->GetComparator(), CompareBufferCommand::Comparator::kRmse);
+  EXPECT_FLOAT_EQ(cmp->GetTolerance(), 0.1f);
+
+  ASSERT_TRUE(cmp->GetBuffer1() != nullptr);
+  EXPECT_EQ(cmp->GetBuffer1()->GetName(), "buf_1");
+
+  ASSERT_TRUE(cmp->GetBuffer2() != nullptr);
+  EXPECT_EQ(cmp->GetBuffer2()->GetName(), "buf_2");
+}
+
+TEST_F(AmberScriptParserTest, ExpectRMSEBufferMissingFirstBuffer) {
+  std::string in = R"(
+BUFFER buf_2 DATA_TYPE int32 SIZE 10 FILL 22
+EXPECT RMSE_BUFFER buf_2)";
+
+  Parser parser;
+  Result r = parser.Parse(in);
+  ASSERT_FALSE(r.IsSuccess());
+  EXPECT_EQ("3: missing buffer name between EXPECT and RMSE_BUFFER", r.Error());
+}
+
+TEST_F(AmberScriptParserTest, ExpectRMSEBufferMissingSecondBuffer) {
+  std::string in = R"(
+BUFFER buf_1 DATA_TYPE int32 SIZE 10 FILL 11
+EXPECT buf_1 RMSE_BUFFER)";
+
+  Parser parser;
+  Result r = parser.Parse(in);
+  ASSERT_FALSE(r.IsSuccess());
+  EXPECT_EQ("3: invalid buffer name in EXPECT RMSE_BUFFER command", r.Error());
+}
+
+TEST_F(AmberScriptParserTest, ExpectRMSEBufferInvalidFirstBuffer) {
+  std::string in = R"(EXPECT 123 RMSE_BUFFER)";
+
+  Parser parser;
+  Result r = parser.Parse(in);
+  ASSERT_FALSE(r.IsSuccess());
+  EXPECT_EQ("1: invalid buffer name in EXPECT command", r.Error());
+}
+
+TEST_F(AmberScriptParserTest, ExpectRMSEBufferUnknownFirstBuffer) {
+  std::string in = R"(EXPECT unknown_buffer RMSE_BUFFER)";
+
+  Parser parser;
+  Result r = parser.Parse(in);
+  ASSERT_FALSE(r.IsSuccess());
+  EXPECT_EQ("1: unknown buffer name for EXPECT command: unknown_buffer",
+            r.Error());
+}
+
+TEST_F(AmberScriptParserTest, ExpectRMSEBufferInvalidSecondBuffer) {
+  std::string in = R"(
+BUFFER buf DATA_TYPE int32 SIZE 10 FILL 11
+EXPECT buf RMSE_BUFFER 123)";
+
+  Parser parser;
+  Result r = parser.Parse(in);
+  ASSERT_FALSE(r.IsSuccess());
+  EXPECT_EQ("3: invalid buffer name in EXPECT RMSE_BUFFER command", r.Error());
+}
+
+TEST_F(AmberScriptParserTest, ExpectRMSEBufferUnknownSecondBuffer) {
+  std::string in = R"(
+BUFFER buf DATA_TYPE int32 SIZE 10 FILL 11
+EXPECT buf RMSE_BUFFER unknown_buffer)";
+
+  Parser parser;
+  Result r = parser.Parse(in);
+  ASSERT_FALSE(r.IsSuccess());
+  EXPECT_EQ(
+      "3: unknown buffer name for EXPECT RMSE_BUFFER command: unknown_buffer",
+      r.Error());
+}
+
+TEST_F(AmberScriptParserTest, ExpectRMSEBufferDifferentSize) {
+  std::string in = R"(
+BUFFER buf_1 DATA_TYPE int32 SIZE 10 FILL 11
+BUFFER buf_2 DATA_TYPE int32 SIZE 99 FILL 11
+EXPECT buf_1 RMSE_BUFFER buf_2)";
+
+  Parser parser;
+  Result r = parser.Parse(in);
+  ASSERT_FALSE(r.IsSuccess());
+  EXPECT_EQ(
+      "4: EXPECT RMSE_BUFFER command cannot compare buffers of different size: "
+      "10 vs 99",
+      r.Error());
+}
+
+TEST_F(AmberScriptParserTest, ExpectRMSEBufferDifferentType) {
+  std::string in = R"(
+BUFFER buf_1 DATA_TYPE int32 SIZE 10 FILL 11
+BUFFER buf_2 FORMAT R32G32B32A32_SFLOAT
+EXPECT buf_1 RMSE_BUFFER buf_2)";
+
+  Parser parser;
+  Result r = parser.Parse(in);
+  ASSERT_FALSE(r.IsSuccess());
+  EXPECT_EQ(
+      "4: EXPECT RMSE_BUFFER command cannot compare buffers of differing "
+      "format",
+      r.Error());
+}
+
+TEST_F(AmberScriptParserTest, ExpectAllowIntegerHexValue) {
+  std::string in = R"(
+BUFFER b1 DATA_TYPE uint32 SIZE 4 FILL 0
+EXPECT b1 IDX 0 EQ 0x0 0x1 0x2 0x3
+)";
+
+  Parser parser;
+  Result r = parser.Parse(in);
+  ASSERT_TRUE(r.IsSuccess());
+
+  auto script = parser.GetScript();
+  const auto& commands = script->GetCommands();
+  ASSERT_EQ(1U, commands.size());
+
+  auto* cmd = commands[0].get();
+  ASSERT_TRUE(cmd->IsProbeSSBO());
+
+  auto* probe = cmd->AsProbeSSBO();
+  EXPECT_EQ(probe->GetComparator(), ProbeSSBOCommand::Comparator::kEqual);
+
+  EXPECT_EQ(4, probe->GetValues().size());
+  EXPECT_EQ(0, probe->GetValues()[0].AsUint64());
+  EXPECT_EQ(1, probe->GetValues()[1].AsUint64());
+  EXPECT_EQ(2, probe->GetValues()[2].AsUint64());
+  EXPECT_EQ(3, probe->GetValues()[3].AsUint64());
+}
+
+TEST_F(AmberScriptParserTest, ExpectAllowFloatHexValue) {
+  std::string in = R"(
+BUFFER b1 DATA_TYPE float SIZE 4 FILL 0
+EXPECT b1 IDX 0 EQ 0x0 0x1 0x2 0x3
+)";
+
+  Parser parser;
+  Result r = parser.Parse(in);
+  ASSERT_TRUE(r.IsSuccess());
+
+  auto script = parser.GetScript();
+  const auto& commands = script->GetCommands();
+  ASSERT_EQ(1U, commands.size());
+
+  auto* cmd = commands[0].get();
+  ASSERT_TRUE(cmd->IsProbeSSBO());
+
+  auto* probe = cmd->AsProbeSSBO();
+  EXPECT_EQ(probe->GetComparator(), ProbeSSBOCommand::Comparator::kEqual);
+
+  EXPECT_EQ(4, probe->GetValues().size());
+  EXPECT_EQ(static_cast<double>(0), probe->GetValues()[0].AsDouble());
+  EXPECT_EQ(static_cast<double>(1), probe->GetValues()[1].AsDouble());
+  EXPECT_EQ(static_cast<double>(2), probe->GetValues()[2].AsDouble());
+  EXPECT_EQ(static_cast<double>(3), probe->GetValues()[3].AsDouble());
 }
 
 }  // namespace amberscript

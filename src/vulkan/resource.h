@@ -1,4 +1,5 @@
 // Copyright 2018 The Amber Authors.
+// Copyright (C) 2024 Advanced Micro Devices, Inc. All rights reserved.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,6 +16,7 @@
 #ifndef SRC_VULKAN_RESOURCE_H_
 #define SRC_VULKAN_RESOURCE_H_
 
+#include <map>
 #include <memory>
 #include <vector>
 
@@ -24,15 +26,25 @@
 
 namespace amber {
 
-class Format;
+class BLAS;
+class TLAS;
+class SBT;
 
 namespace vulkan {
 
 class CommandBuffer;
 class Device;
+class TransferBuffer;
+class TransferImage;
+class BLAS;
+class TLAS;
+class SBT;
 
-// Class for Vulkan resources. Its children are Vulkan Buffer, Vulkan Image,
-// and a class for push constant.
+typedef std::map<amber::BLAS*, std::unique_ptr<amber::vulkan::BLAS>> BlasesMap;
+typedef std::map<amber::TLAS*, std::unique_ptr<amber::vulkan::TLAS>> TlasesMap;
+typedef std::map<amber::SBT*, amber::vulkan::SBT*> SbtsMap;
+
+// Class for Vulkan resources. Its children are Vulkan Buffer and Vulkan Image.
 class Resource {
  public:
   virtual ~Resource();
@@ -47,6 +59,22 @@ class Resource {
   void* HostAccessibleMemoryPtr() const { return memory_ptr_; }
 
   uint32_t GetSizeInBytes() const { return size_in_bytes_; }
+  void UpdateMemoryWithRawData(const std::vector<uint8_t>& raw_data);
+
+  bool IsReadOnly() const { return is_read_only_; }
+  void SetReadOnly(bool read_only) { is_read_only_ = read_only; }
+  virtual Result Initialize() = 0;
+  virtual TransferBuffer* AsTransferBuffer() { return nullptr; }
+  virtual TransferImage* AsTransferImage() { return nullptr; }
+  virtual void AddAllocateFlags(VkMemoryAllocateFlags memory_allocate_flags) {
+    memory_allocate_flags_ |= memory_allocate_flags;
+  }
+  VkMemoryPropertyFlags GetMemoryPropertiesFlags() {
+    return memory_properties_flags_;
+  }
+  void SetMemoryPropertiesFlags(VkMemoryPropertyFlags flags) {
+    memory_properties_flags_ = flags;
+  }
 
  protected:
   Resource(Device* device, uint32_t size);
@@ -84,6 +112,11 @@ class Resource {
  private:
   uint32_t size_in_bytes_ = 0;
   void* memory_ptr_ = nullptr;
+  bool is_read_only_ = false;
+  VkMemoryAllocateFlags memory_allocate_flags_ = 0u;
+  VkMemoryPropertyFlags memory_properties_flags_ =
+      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+      VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
 };
 
 }  // namespace vulkan
